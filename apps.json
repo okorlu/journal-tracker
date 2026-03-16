@@ -1,0 +1,52 @@
+{
+  "$schema": "https://wvw.dev/apps.schema.json",
+  "store": {
+    "name": "Journal Tracker Store",
+    "developer": "Ozgenur Korlu",
+    "tagline": "OpenAlex-powered journal tracking tools",
+    "github": "https://github.com/okorlu"
+  },
+  "categories": [
+    {
+      "id": "cli",
+      "name": "CLI Apps"
+    },
+    {
+      "id": "developer-tools",
+      "name": "Developer Tools"
+    },
+    {
+      "id": "reference",
+      "name": "Reference"
+    }
+  ],
+  "apps": [
+    {
+      "id": "journal-tracker",
+      "name": "Journal Tracker",
+      "subtitle": "Sync OpenAlex journal records into Excel or CSV",
+      "description": "A Python CLI for syncing OpenAlex journal publications into tracker workbooks.",
+      "longDescription": "Journal Tracker is a Python CLI that syncs OpenAlex journal records into a structured Excel workbook and can optionally export the articles sheet as CSV. It was first built around a Turkish politics journal list, but the workflow is general enough to support other topics, journal sets, and research tracking needs.",
+      "icon": null,
+      "iconEmoji": "📚",
+      "category": [
+        "cli",
+        "developer-tools",
+        "reference"
+      ],
+      "platform": "Python CLI",
+      "price": "Free",
+      "github": "https://github.com/okorlu/journal-tracker",
+      "homepage": "https://github.com/okorlu/journal-tracker",
+      "language": "Python",
+      "downloadUrl": "https://github.com/okorlu/journal-tracker/releases/latest",
+      "requirements": "Python 3.11+",
+      "features": [
+        "Syncs journal records from OpenAlex into an Excel workbook",
+        "Appends only new records and supports idempotent re-runs",
+        "Exports the Articles sheet as CSV when requested",
+        "Ships with a sample workbook, tests, and GitHub Actions CI"
+      ]
+    }
+  ]
+}
