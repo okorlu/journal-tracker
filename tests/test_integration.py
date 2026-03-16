@@ -79,7 +79,7 @@ def test_sync_workbook_is_idempotent_with_sample_workbook(tmp_path: Path) -> Non
     assert summary.backup_path.exists()
 
     workbook = load_workbook(workbook_path)
-    sheet = workbook["Turkish Politics Articles"]
+    sheet = workbook["Articles"]
     assert sheet.max_row == 5
     assert sheet["A4"].value == "Fresh Turkish Studies Article"
     assert sheet["A5"].value == "Fresh Party Politics Article"

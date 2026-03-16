@@ -46,7 +46,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--csv-output",
-        help="Optional path to export the 'Turkish Politics Articles' sheet as CSV.",
+        help="Optional path to export the 'Articles' sheet as CSV.",
     )
     return parser.parse_args(argv)
 

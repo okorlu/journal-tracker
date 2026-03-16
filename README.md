@@ -1,7 +1,10 @@
 # Journal Tracker OpenAlex Sync
 
-Public-ready Python project for syncing OpenAlex journal records into an Excel/CSV
-tracker workbook.
+Public-ready Python project for syncing OpenAlex journal records into an Excel
+tracker workbook. It ships with a sample workbook and starter journal list, but
+the intended use is broader: you can adapt it to your own topic, journal set,
+and workflow.
+It can also export the synced articles sheet as CSV when needed.
 
 ## What is tracked in git
 
@@ -10,7 +13,7 @@ tracker workbook.
 
 ## What stays local
 
-- Your real workbook in `data/turkish_politics_articles_database.xlsx`.
+- Your real workbook in `data/`.
 - Your OpenAlex key in `.env` or shell environment variables.
 - Any generated `.bak.xlsx` backups.
 
@@ -43,13 +46,19 @@ Edit `.env` and set:
 OPENALEX_API_KEY=your-key-here
 ```
 
+The sample workbook is only a starting point. You can keep its structure as-is
+or replace it with your own workbook, as long as it includes:
+
+- a `Journal Directory` sheet with your journal list
+- an `Articles` sheet for synced output
+
 ## Usage
 
 Dry run with the local workbook:
 
 ```bash
 .venv/bin/journal-tracker-sync \
-  --workbook data/turkish_politics_articles_database.xlsx \
+  --workbook data/your-tracker.xlsx \
   --dry-run
 ```
 
@@ -57,7 +66,7 @@ Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\journal-tracker-sync `
-  --workbook data\turkish_politics_articles_database.xlsx `
+  --workbook data\your-tracker.xlsx `
   --dry-run
 ```
 
@@ -65,43 +74,43 @@ Write new rows into the workbook:
 
 ```bash
 .venv/bin/journal-tracker-sync \
-  --workbook data/turkish_politics_articles_database.xlsx
+  --workbook data/your-tracker.xlsx
 ```
 
 Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\journal-tracker-sync `
-  --workbook data\turkish_politics_articles_database.xlsx
+  --workbook data\your-tracker.xlsx
 ```
 
 Export the articles sheet as CSV while syncing:
 
 ```bash
 .venv/bin/journal-tracker-sync \
-  --workbook data/turkish_politics_articles_database.xlsx \
-  --csv-output data/turkish_politics_articles_database.csv
+  --workbook data/your-tracker.xlsx \
+  --csv-output data/your-tracker.csv
 ```
 
 Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\journal-tracker-sync `
-  --workbook data\turkish_politics_articles_database.xlsx `
-  --csv-output data\turkish_politics_articles_database.csv
+  --workbook data\your-tracker.xlsx `
+  --csv-output data\your-tracker.csv
 ```
 
 The legacy wrapper still works:
 
 ```bash
 .venv/bin/python scripts/sync_openalex.py \
-  --workbook data/turkish_politics_articles_database.xlsx
+  --workbook data/your-tracker.xlsx
 ```
 
 You can also use the module form on any platform:
 
 ```bash
-python -m journal_tracker.cli --workbook data/turkish_politics_articles_database.xlsx --dry-run
+python -m journal_tracker.cli --workbook data/your-tracker.xlsx --dry-run
 ```
 
 ## How it works
@@ -112,11 +121,25 @@ python -m journal_tracker.cli --workbook data/turkish_politics_articles_database
 - Fetches records from the rolling last 3 years using OpenAlex cursor paging.
 - Writes `Article Title`, `Author(s)`, `Journal`, `Volume/Issue`, `Year`,
   `Pages`, `DOI/Link`, `Cluster`, and `Key Topics`.
-- Can also export the `Turkish Politics Articles` sheet as a CSV file when
+- Can also export the `Articles` sheet as a CSV file when
   `--csv-output` is provided.
 - Preserves sheet styling by cloning the first visible data row style.
 - Creates a timestamped `.bak.xlsx` backup before any write.
 - Stores OpenAlex work IDs in a hidden metadata sheet so reruns stay idempotent.
+
+## Adapting it to your own project
+
+This repository started with a Turkish politics use case, because those journals
+were a strong first set for that topic. But the tool itself is not limited to
+Turkish politics. You can use the same workflow for any journal list that can be
+matched to OpenAlex sources.
+
+In practice, adapting the project usually means:
+
+- replacing the sample workbook with your own workbook under `data/`
+- editing the journal list in the `Journal Directory` sheet
+- updating `config/openalex_sources.json` with the matching OpenAlex `source_id`
+- optionally changing the output CSV filename and local workbook name
 
 ## Why these journals
 
@@ -144,7 +167,7 @@ To add another journal:
 
 ```bash
 .venv/bin/journal-tracker-sync \
-  --workbook data/turkish_politics_articles_database.xlsx \
+  --workbook data/your-tracker.xlsx \
   --dry-run
 ```
 

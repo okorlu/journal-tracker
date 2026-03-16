@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 
 from openpyxl import load_workbook
 
-ARTICLES_SHEET = "Turkish Politics Articles"
+ARTICLES_SHEET = "Articles"
 DIRECTORY_SHEET = "Journal Directory"
 META_SHEET = "_openalex_sync_meta"
 DEFAULT_PER_PAGE = 200

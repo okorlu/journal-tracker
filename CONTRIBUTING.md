@@ -26,6 +26,5 @@ Add your own `OPENALEX_API_KEY` to `.env`. Do not commit `.env` or local workboo
 ## Data handling
 
 - Keep real workbooks under `data/`.
-- Use `examples/turkish_politics_articles_database.sample.xlsx` for tests, demos, and docs.
+- Use `examples/turkish_politics_articles_database.sample.xlsx` as a starter example for tests, demos, and docs.
 - Rotate any API key that was ever pasted into chats, screenshots, or command history before publishing the repo.
-
