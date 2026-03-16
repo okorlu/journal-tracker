@@ -1,6 +1,6 @@
 # Journal Tracker OpenAlex Sync
 
-Public-ready Python project for syncing OpenAlex journal records into an Excel
+Public-ready Python project for syncing OpenAlex journal records into an Excel/CSV
 tracker workbook.
 
 ## What is tracked in git
