@@ -1,0 +1,130 @@
+[
+  {
+    "journal_name": "Turkish Studies",
+    "source_id": "https://openalex.org/S77485876",
+    "publisher": "Routledge (Taylor & Francis)",
+    "cluster": "Turkey-dedicated"
+  },
+  {
+    "journal_name": "New Perspectives on Turkey",
+    "source_id": "https://openalex.org/S34010420",
+    "publisher": "Cambridge University Press",
+    "cluster": "Turkey-dedicated"
+  },
+  {
+    "journal_name": "Journal of Democracy",
+    "source_id": "https://openalex.org/S151119180",
+    "publisher": "Johns Hopkins Univ. Press",
+    "cluster": "Comp. Politics & Democratization"
+  },
+  {
+    "journal_name": "Democratization",
+    "source_id": "https://openalex.org/S110268115",
+    "publisher": "Taylor & Francis",
+    "cluster": "Comp. Politics & Democratization"
+  },
+  {
+    "journal_name": "Government and Opposition",
+    "source_id": "https://openalex.org/S29411750",
+    "publisher": "Cambridge University Press",
+    "cluster": "Comp. Politics & Democratization"
+  },
+  {
+    "journal_name": "Comparative Political Studies",
+    "source_id": "https://openalex.org/S105556297",
+    "publisher": "SAGE",
+    "cluster": "Comp. Politics & Democratization"
+  },
+  {
+    "journal_name": "Party Politics",
+    "source_id": "https://openalex.org/S6959732",
+    "publisher": "SAGE",
+    "cluster": "Comp. Politics & Democratization"
+  },
+  {
+    "journal_name": "Int'l Journal of Middle East Studies",
+    "source_id": "https://openalex.org/S87435064",
+    "publisher": "Cambridge University Press",
+    "cluster": "Area Studies / Regional",
+    "alias": "International Journal Middle East Studies",
+    "issn": [
+      "0020-7438",
+      "1471-6380"
+    ]
+  },
+  {
+    "journal_name": "Southeast European and Black Sea Studies",
+    "source_id": "https://openalex.org/S50351660",
+    "publisher": "Taylor & Francis",
+    "cluster": "Area Studies / Regional",
+    "alias": "Journal of Southeast European and Black Sea Studies"
+  },
+  {
+    "journal_name": "Mediterranean Politics",
+    "source_id": "https://openalex.org/S69526605",
+    "publisher": "Taylor & Francis",
+    "cluster": "Area Studies / Regional"
+  },
+  {
+    "journal_name": "Middle Eastern Studies",
+    "source_id": "https://openalex.org/S164505828",
+    "publisher": "Taylor & Francis",
+    "cluster": "Area Studies / Regional"
+  },
+  {
+    "journal_name": "South European Society and Politics",
+    "source_id": "https://openalex.org/S38590382",
+    "publisher": "Taylor & Francis",
+    "cluster": "Area Studies / Regional",
+    "alias": "South European Society & Politics"
+  },
+  {
+    "journal_name": "British Journal of Middle Eastern Studies",
+    "source_id": "https://openalex.org/S199726014",
+    "publisher": "Taylor & Francis",
+    "cluster": "Area Studies / Regional"
+  },
+  {
+    "journal_name": "Third World Quarterly",
+    "source_id": "https://openalex.org/S64122990",
+    "publisher": "Taylor & Francis",
+    "cluster": "Political Economy & Development"
+  },
+  {
+    "journal_name": "The Political Quarterly",
+    "source_id": "https://openalex.org/S12780936",
+    "publisher": "Wiley",
+    "cluster": "Comp. Politics & Democratization"
+  },
+  {
+    "journal_name": "The ANNALS of the AAPSS",
+    "source_id": "https://openalex.org/S150314616",
+    "publisher": "SAGE",
+    "cluster": "Comp. Politics & Democratization",
+    "alias": "The Annals of the American Academy of Political and Social Science"
+  },
+  {
+    "journal_name": "World Politics",
+    "source_id": "https://openalex.org/S143110675",
+    "publisher": "Cambridge University Press",
+    "cluster": "Comp. Politics & Democratization"
+  },
+  {
+    "journal_name": "European Journal of Political Research",
+    "source_id": "https://openalex.org/S135158421",
+    "publisher": "Wiley",
+    "cluster": "Area Studies / Regional"
+  },
+  {
+    "journal_name": "Nations and Nationalism",
+    "source_id": "https://openalex.org/S155963401",
+    "publisher": "Wiley",
+    "cluster": "Political Sociology"
+  },
+  {
+    "journal_name": "Ethnic and Racial Studies",
+    "source_id": "https://openalex.org/S96629499",
+    "publisher": "Taylor & Francis",
+    "cluster": "Political Sociology"
+  }
+]
