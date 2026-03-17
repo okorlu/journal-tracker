@@ -16,6 +16,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 ARTICLES_SHEET = "Articles"
 DIRECTORY_SHEET = "Journal Directory"
@@ -23,6 +24,9 @@ META_SHEET = "_openalex_sync_meta"
 DEFAULT_PER_PAGE = 200
 DEFAULT_YEARS = 3
 OPENALEX_API_URL = "https://api.openalex.org/works"
+ARTICLE_LINK_COLUMN = 7
+ADDED_AT_HEADER = "Added At"
+ProgressCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,17 @@ class SyncSummary:
     total_duplicates: int
     dry_run: bool
     backup_path: Path | None = None
+    workbook_changed: bool = False
+    added_at_column_added: bool = False
+    added_at_backfilled: int = 0
+
+
+@dataclass(frozen=True)
+class WorkbookWriteResult:
+    backup_path: Path
+    workbook_changed: bool
+    added_at_column_added: bool
+    added_at_backfilled: int
 
 
 def default_config_path() -> Path:
@@ -82,6 +97,11 @@ def load_config(config_path: Path) -> dict[str, JournalConfig]:
             alias=item.get("alias"),
         )
     return config
+
+
+def emit_progress(progress_callback: ProgressCallback | None, message: str) -> None:
+    if progress_callback:
+        progress_callback(message)
 
 
 def openalex_get(url: str) -> dict[str, Any]:
@@ -172,10 +192,18 @@ def read_directory_sheet(
     return entries
 
 
-def fetch_works(source_id: str, cutoff_date: date, api_key: str) -> list[dict[str, Any]]:
+def fetch_works(
+    source_id: str,
+    cutoff_date: date,
+    api_key: str,
+    progress_callback: ProgressCallback | None = None,
+    progress_label: str | None = None,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     cursor = "*"
+    page_count = 0
     while True:
+        page_count += 1
         params = {
             "filter": (
                 "primary_location.source.id:"
@@ -198,6 +226,12 @@ def fetch_works(source_id: str, cutoff_date: date, api_key: str) -> list[dict[st
 
         results.extend(payload.get("results", []))
         cursor = payload.get("meta", {}).get("next_cursor")
+        if cursor:
+            label = progress_label or source_id
+            emit_progress(
+                progress_callback,
+                f"  {label}: page {page_count} fetched, {len(results)} records so far",
+            )
         if not cursor:
             break
         time.sleep(0.1)
@@ -273,6 +307,93 @@ def ensure_meta_sheet(workbook) -> Any:
     meta_sheet.sheet_state = "hidden"
     meta_sheet.append(["work_id", "doi", "normalized_key", "synced_at"])
     return meta_sheet
+
+
+def clone_cell_style(source, target) -> None:
+    if source.has_style:
+        target._style = copy(source._style)
+    if source.number_format:
+        target.number_format = source.number_format
+    if source.font:
+        target.font = copy(source.font)
+    if source.fill:
+        target.fill = copy(source.fill)
+    if source.border:
+        target.border = copy(source.border)
+    if source.alignment:
+        target.alignment = copy(source.alignment)
+    if source.protection:
+        target.protection = copy(source.protection)
+
+
+def ensure_added_at_column(articles_sheet) -> tuple[int, bool]:
+    headers = [
+        (articles_sheet.cell(row=1, column=column_index).value or "").strip()
+        for column_index in range(1, articles_sheet.max_column + 1)
+    ]
+    for column_index, header in enumerate(headers, start=1):
+        if header == ADDED_AT_HEADER:
+            return column_index, False
+
+    added_at_column = articles_sheet.max_column + 1
+    source_column = max(1, added_at_column - 1)
+    for row_index in range(1, articles_sheet.max_row + 1):
+        source = articles_sheet.cell(row=row_index, column=source_column)
+        target = articles_sheet.cell(row=row_index, column=added_at_column)
+        clone_cell_style(source, target)
+    articles_sheet.cell(row=1, column=added_at_column).value = ADDED_AT_HEADER
+
+    source_letter = get_column_letter(source_column)
+    target_letter = get_column_letter(added_at_column)
+    source_width = articles_sheet.column_dimensions[source_letter].width
+    if source_width is not None:
+        articles_sheet.column_dimensions[target_letter].width = source_width
+
+    return added_at_column, True
+
+
+def backfill_added_at_from_meta(articles_sheet, meta_sheet, added_at_column: int) -> int:
+    synced_at_by_key: dict[str, str] = {}
+    for work_id, doi, normalized_key, synced_at in meta_sheet.iter_rows(
+        min_row=2,
+        max_col=4,
+        values_only=True,
+    ):
+        del work_id, doi
+        if normalized_key and synced_at and normalized_key not in synced_at_by_key:
+            synced_at_by_key[normalized_key] = synced_at
+
+    updated_count = 0
+    for row_index in range(2, articles_sheet.max_row + 1):
+        added_at_cell = articles_sheet.cell(row=row_index, column=added_at_column)
+        if added_at_cell.value:
+            continue
+        normalized_key = normalized_title_key(
+            str(articles_sheet.cell(row=row_index, column=1).value or ""),
+            str(articles_sheet.cell(row=row_index, column=3).value or ""),
+            articles_sheet.cell(row=row_index, column=5).value or "",
+        )
+        synced_at = synced_at_by_key.get(normalized_key)
+        if synced_at:
+            added_at_cell.value = synced_at
+            updated_count += 1
+
+    return updated_count
+
+
+def prepare_articles_sheet(workbook, articles_sheet_name: str):
+    if articles_sheet_name not in workbook.sheetnames:
+        raise ValueError(f"Workbook is missing the '{articles_sheet_name}' sheet.")
+
+    articles_sheet = workbook[articles_sheet_name]
+    meta_sheet = ensure_meta_sheet(workbook)
+    added_at_column, added_at_column_added = ensure_added_at_column(articles_sheet)
+    added_at_backfilled = backfill_added_at_from_meta(
+        articles_sheet,
+        meta_sheet,
+        added_at_column,
+    )
+    return articles_sheet, meta_sheet, added_at_column, added_at_column_added, added_at_backfilled
 
 
 def read_existing_indexes(articles_sheet, meta_sheet) -> tuple[set[str], set[str], set[str]]:
@@ -371,20 +492,7 @@ def clone_row_style(sheet, template_row: int, target_row: int, total_columns: in
     for column_index in range(1, total_columns + 1):
         source = sheet.cell(row=template_row, column=column_index)
         target = sheet.cell(row=target_row, column=column_index)
-        if source.has_style:
-            target._style = copy(source._style)
-        if source.number_format:
-            target.number_format = source.number_format
-        if source.font:
-            target.font = copy(source.font)
-        if source.fill:
-            target.fill = copy(source.fill)
-        if source.border:
-            target.border = copy(source.border)
-        if source.alignment:
-            target.alignment = copy(source.alignment)
-        if source.protection:
-            target.protection = copy(source.protection)
+        clone_cell_style(source, target)
     if sheet.row_dimensions[template_row].height is not None:
         sheet.row_dimensions[target_row].height = sheet.row_dimensions[template_row].height
 
@@ -394,24 +502,28 @@ def append_rows(
     rows: list[list[Any]],
     meta_rows: list[tuple[str, str | None, str]],
     articles_sheet_name: str = ARTICLES_SHEET,
-) -> Path:
+) -> WorkbookWriteResult:
     workbook = load_workbook(workbook_path)
-    if articles_sheet_name not in workbook.sheetnames:
-        raise ValueError(f"Workbook is missing the '{articles_sheet_name}' sheet.")
-
-    articles_sheet = workbook[articles_sheet_name]
-    meta_sheet = ensure_meta_sheet(workbook)
+    (
+        articles_sheet,
+        meta_sheet,
+        added_at_column,
+        added_at_column_added,
+        added_at_backfilled,
+    ) = prepare_articles_sheet(workbook, articles_sheet_name)
     template_row = 2 if articles_sheet.max_row >= 2 else 1
     synced_at = datetime.now().isoformat(timespec="seconds")
+    workbook_changed = added_at_column_added or added_at_backfilled > 0 or bool(rows)
 
     for values, meta in zip(rows, meta_rows):
         next_row = articles_sheet.max_row + 1
-        clone_row_style(articles_sheet, template_row, next_row, len(values))
+        clone_row_style(articles_sheet, template_row, next_row, articles_sheet.max_column)
         for column_index, value in enumerate(values, start=1):
             cell = articles_sheet.cell(row=next_row, column=column_index)
             cell.value = value
-            if column_index == 7 and value:
+            if column_index == ARTICLE_LINK_COLUMN and value:
                 cell.hyperlink = value
+        articles_sheet.cell(row=next_row, column=added_at_column).value = synced_at
         meta_sheet.append([meta[0], meta[1], meta[2], synced_at])
 
     backup_path = workbook_path.with_name(
@@ -420,7 +532,12 @@ def append_rows(
     shutil.copy2(workbook_path, backup_path)
     workbook.save(workbook_path)
     workbook.close()
-    return backup_path
+    return WorkbookWriteResult(
+        backup_path=backup_path,
+        workbook_changed=workbook_changed,
+        added_at_column_added=added_at_column_added,
+        added_at_backfilled=added_at_backfilled,
+    )
 
 
 def export_articles_to_csv(
@@ -438,8 +555,23 @@ def export_articles_to_csv(
     articles_sheet = workbook[articles_sheet_name]
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        for row in articles_sheet.iter_rows(values_only=True):
-            writer.writerow(["" if value is None else value for value in row])
+        rows = articles_sheet.iter_rows(values_only=True)
+        header = next(rows, None)
+        if header is None:
+            workbook.close()
+            return csv_path
+
+        header_values = ["" if value is None else value for value in header]
+        has_added_at = ADDED_AT_HEADER in header_values
+        if not has_added_at:
+            header_values.append(ADDED_AT_HEADER)
+        writer.writerow(header_values)
+
+        for row in rows:
+            values = ["" if value is None else value for value in row]
+            if not has_added_at:
+                values.append("")
+            writer.writerow(values)
 
     workbook.close()
     return csv_path
@@ -456,6 +588,7 @@ def sync_workbook(
     journal_names: Collection[str] | None = None,
     today: date | None = None,
     fetcher: Callable[[str, date, str], list[dict[str, Any]]] = fetch_works,
+    progress_callback: ProgressCallback | None = None,
 ) -> SyncSummary:
     workbook_path = workbook_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
@@ -464,7 +597,9 @@ def sync_workbook(
     if not config_path.exists():
         raise FileNotFoundError(f"Config not found: {config_path}")
 
+    emit_progress(progress_callback, f"Loading journal config from {config_path}")
     config = load_config(config_path)
+    emit_progress(progress_callback, f"Reading journal directory from {workbook_path}")
     directory_entries = read_directory_sheet(
         workbook_path,
         config,
@@ -472,16 +607,24 @@ def sync_workbook(
         selected_journals=journal_names,
     )
     cutoff_date = rolling_cutoff(today or date.today(), years)
+    emit_progress(
+        progress_callback,
+        f"Loaded {len(directory_entries)} journals. Cutoff date: {cutoff_date.isoformat()}",
+    )
 
     workbook = load_workbook(workbook_path)
-    if articles_sheet not in workbook.sheetnames:
-        raise ValueError(f"Workbook is missing the '{articles_sheet}' sheet.")
-    articles_sheet_ref = workbook[articles_sheet]
-    meta_sheet = ensure_meta_sheet(workbook)
+    (
+        articles_sheet_ref,
+        meta_sheet,
+        added_at_column,
+        added_at_column_added,
+        added_at_backfilled,
+    ) = prepare_articles_sheet(workbook, articles_sheet)
     doi_index, work_id_index, normalized_index = read_existing_indexes(
         articles_sheet_ref, meta_sheet
     )
     workbook.close()
+    del added_at_column
 
     journal_results: list[JournalSyncResult] = []
     all_new_rows: list[list[Any]] = []
@@ -489,14 +632,32 @@ def sync_workbook(
     total_fetched = 0
     total_duplicates = 0
 
-    for entry in directory_entries:
-        works = fetcher(entry.source_id, cutoff_date, api_key)
+    for index, entry in enumerate(directory_entries, start=1):
+        emit_progress(
+            progress_callback,
+            f"[{index}/{len(directory_entries)}] Fetching {entry.journal_name}...",
+        )
+        if fetcher is fetch_works:
+            works = fetcher(
+                entry.source_id,
+                cutoff_date,
+                api_key,
+                progress_callback=progress_callback,
+                progress_label=entry.journal_name,
+            )
+        else:
+            works = fetcher(entry.source_id, cutoff_date, api_key)
         rows, meta_rows, duplicate_count = build_rows(
             entry,
             works,
             doi_index,
             work_id_index,
             normalized_index,
+        )
+        emit_progress(
+            progress_callback,
+            f"[{index}/{len(directory_entries)}] {entry.journal_name}: "
+            f"fetched={len(works)} new={len(rows)} duplicates={duplicate_count}",
         )
         journal_results.append(
             JournalSyncResult(
@@ -512,13 +673,22 @@ def sync_workbook(
         all_meta_rows.extend(meta_rows)
 
     backup_path = None
-    if not dry_run and all_new_rows:
-        backup_path = append_rows(
+    workbook_changed = added_at_column_added or added_at_backfilled > 0
+    if not dry_run and (all_new_rows or workbook_changed):
+        emit_progress(
+            progress_callback,
+            f"Writing workbook updates ({len(all_new_rows)} new rows)...",
+        )
+        write_result = append_rows(
             workbook_path,
             all_new_rows,
             all_meta_rows,
             articles_sheet_name=articles_sheet,
         )
+        backup_path = write_result.backup_path
+        workbook_changed = write_result.workbook_changed
+        added_at_column_added = write_result.added_at_column_added
+        added_at_backfilled = write_result.added_at_backfilled
 
     return SyncSummary(
         workbook_path=workbook_path,
@@ -529,4 +699,7 @@ def sync_workbook(
         total_duplicates=total_duplicates,
         dry_run=dry_run,
         backup_path=backup_path,
+        workbook_changed=workbook_changed,
+        added_at_column_added=added_at_column_added,
+        added_at_backfilled=added_at_backfilled,
     )

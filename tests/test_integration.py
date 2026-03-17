@@ -84,8 +84,12 @@ def test_sync_workbook_is_idempotent_with_sample_workbook(tmp_path: Path) -> Non
     workbook = load_workbook(workbook_path)
     sheet = workbook["Articles"]
     assert sheet.max_row == 5
+    assert sheet.max_column == 10
+    assert sheet["J1"].value == "Added At"
     assert sheet["A4"].value == "Fresh Turkish Studies Article"
     assert sheet["A5"].value == "Fresh Party Politics Article"
+    assert sheet["J4"].value
+    assert sheet["J5"].value
     assert workbook[META_SHEET].sheet_state == "hidden"
     workbook.close()
 
@@ -125,8 +129,10 @@ def test_export_articles_to_csv_writes_current_articles_sheet(tmp_path: Path) ->
         "DOI/Link",
         "Cluster",
         "Key Topics",
+        "Added At",
     ]
     assert rows[1][0] == "Sample Existing Article"
+    assert rows[1][9] == ""
 
 
 def test_sync_workbook_can_filter_to_profile_journal_subset(tmp_path: Path) -> None:
@@ -171,7 +177,9 @@ def test_sync_workbook_can_filter_to_profile_journal_subset(tmp_path: Path) -> N
     workbook = load_workbook(workbook_path)
     sheet = workbook["Articles"]
     assert sheet.max_row == 4
+    assert sheet["J1"].value == "Added At"
     assert sheet["A4"].value == "Profile Limited Party Article"
+    assert sheet["J4"].value
     workbook.close()
 
 
@@ -218,3 +226,32 @@ def test_profile_can_supply_paths_and_defaults(tmp_path: Path) -> None:
     assert options["directory_sheet"] == "Journal Directory"
     assert options["journal_names"] == ("Party Politics", "Turkish Studies")
     assert options["csv_output_path"] == (tmp_path / "exports" / "tracker.csv").resolve()
+
+
+def test_sync_workbook_emits_progress_messages(tmp_path: Path) -> None:
+    source_workbook = Path("examples/turkish_politics_articles_database.sample.xlsx")
+    workbook_path = tmp_path / "tracker.xlsx"
+    shutil.copy2(source_workbook, workbook_path)
+    messages: list[str] = []
+
+    def fake_fetcher(source_id: str, cutoff_date: date, api_key: str):
+        del source_id, cutoff_date, api_key
+        return []
+
+    summary = sync_workbook(
+        workbook_path=workbook_path,
+        config_path=default_config_path(),
+        api_key="test-key",
+        years=3,
+        dry_run=True,
+        journal_names=["Party Politics"],
+        today=date(2026, 3, 15),
+        fetcher=fake_fetcher,
+        progress_callback=messages.append,
+    )
+
+    assert summary.total_new_rows == 0
+    assert any("Loading journal config" in message for message in messages)
+    assert any("Reading journal directory" in message for message in messages)
+    assert any("Fetching Party Politics" in message for message in messages)
+    assert any("Party Politics: fetched=0 new=0 duplicates=0" in message for message in messages)

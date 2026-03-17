@@ -154,8 +154,9 @@ window for a specific run.
 - Resolves each journal to a fixed OpenAlex `source_id` from
   `config/openalex_sources.json`.
 - Fetches records from the rolling last 3 years using OpenAlex cursor paging.
+- Prints live progress messages while it works through the journal list.
 - Writes `Article Title`, `Author(s)`, `Journal`, `Volume/Issue`, `Year`,
-  `Pages`, `DOI/Link`, `Cluster`, and `Key Topics`.
+  `Pages`, `DOI/Link`, `Cluster`, `Key Topics`, and `Added At`.
 - Can also export the `Articles` sheet as a CSV file when
   `--csv-output` is provided.
 - Preserves sheet styling by cloning the first visible data row style.

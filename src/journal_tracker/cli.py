@@ -126,9 +126,16 @@ def print_summary(summary: SyncSummary) -> None:
         f"Summary: journals={len(summary.journal_results)} fetched={summary.total_fetched} "
         f"new_rows={summary.total_new_rows} duplicates={summary.total_duplicates}"
     )
+    if summary.added_at_column_added or summary.added_at_backfilled:
+        migration_bits: list[str] = []
+        if summary.added_at_column_added:
+            migration_bits.append("Added At column added")
+        if summary.added_at_backfilled:
+            migration_bits.append(f"Added At backfilled for {summary.added_at_backfilled} rows")
+        print("Workbook migration: " + "; ".join(migration_bits))
     if summary.dry_run:
         print("Dry run complete. Workbook was not modified.")
-    elif summary.total_new_rows == 0:
+    elif summary.total_new_rows == 0 and not summary.workbook_changed:
         print("No new rows found. Workbook was not modified.")
     else:
         print(f"Backup created at: {summary.backup_path}")
@@ -150,6 +157,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    print("Starting journal sync...", flush=True)
+    if args.profile:
+        print(f"Using profile: {Path(args.profile).expanduser()}", flush=True)
+
     summary = sync_workbook(
         workbook_path=options["workbook_path"],
         config_path=options["config_path"],
@@ -159,6 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         articles_sheet=options["articles_sheet"],
         directory_sheet=options["directory_sheet"],
         journal_names=options["journal_names"],
+        progress_callback=lambda message: print(message, flush=True),
     )
     print_summary(summary)
     if options["csv_output_path"]:
