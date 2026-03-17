@@ -1,0 +1,29 @@
+{
+  "name": "turkish-politics-starter",
+  "config": "../openalex_sources.json",
+  "years": 3,
+  "articles_sheet": "Articles",
+  "directory_sheet": "Journal Directory",
+  "journals": [
+    "Turkish Studies",
+    "New Perspectives on Turkey",
+    "Journal of Democracy",
+    "Democratization",
+    "Government and Opposition",
+    "Comparative Political Studies",
+    "Party Politics",
+    "Int'l Journal of Middle East Studies",
+    "Southeast European and Black Sea Studies",
+    "Mediterranean Politics",
+    "Middle Eastern Studies",
+    "South European Society and Politics",
+    "British Journal of Middle Eastern Studies",
+    "Third World Quarterly",
+    "The Political Quarterly",
+    "The ANNALS of the AAPSS",
+    "World Politics",
+    "European Journal of Political Research",
+    "Nations and Nationalism",
+    "Ethnic and Racial Studies"
+  ]
+}

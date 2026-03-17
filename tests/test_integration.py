@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import csv
+import json
 import shutil
 from datetime import date
 from pathlib import Path
 
 from openpyxl import load_workbook
 
+from journal_tracker.cli import resolve_run_options
+from journal_tracker.profiles import load_profile
 from journal_tracker.sync import (
     META_SHEET,
     default_config_path,
@@ -124,3 +127,94 @@ def test_export_articles_to_csv_writes_current_articles_sheet(tmp_path: Path) ->
         "Key Topics",
     ]
     assert rows[1][0] == "Sample Existing Article"
+
+
+def test_sync_workbook_can_filter_to_profile_journal_subset(tmp_path: Path) -> None:
+    source_workbook = Path("examples/turkish_politics_articles_database.sample.xlsx")
+    workbook_path = tmp_path / "tracker.xlsx"
+    shutil.copy2(source_workbook, workbook_path)
+
+    payloads = {
+        "https://openalex.org/S6959732": [
+            {
+                "id": "https://openalex.org/W-new-party",
+                "display_name": "Profile Limited Party Article",
+                "publication_year": 2026,
+                "publication_date": "2026-03-02",
+                "doi": "https://doi.org/10.5555/profile-party",
+                "biblio": {"volume": "32", "issue": "2", "first_page": "44", "last_page": "58"},
+                "authorships": [{"author": {"display_name": "Deniz Example"}}],
+                "topics": [{"display_name": "Party systems"}],
+            }
+        ]
+    }
+
+    def fake_fetcher(source_id: str, cutoff_date: date, api_key: str):
+        assert api_key == "test-key"
+        assert cutoff_date == date(2023, 3, 15)
+        return payloads.get(source_id, [])
+
+    summary = sync_workbook(
+        workbook_path=workbook_path,
+        config_path=default_config_path(),
+        api_key="test-key",
+        years=3,
+        dry_run=False,
+        journal_names=["Party Politics"],
+        today=date(2026, 3, 15),
+        fetcher=fake_fetcher,
+    )
+
+    assert [result.journal_name for result in summary.journal_results] == ["Party Politics"]
+    assert summary.total_new_rows == 1
+
+    workbook = load_workbook(workbook_path)
+    sheet = workbook["Articles"]
+    assert sheet.max_row == 4
+    assert sheet["A4"].value == "Profile Limited Party Article"
+    workbook.close()
+
+
+def test_profile_can_supply_paths_and_defaults(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "tracker.xlsx"
+    profile_path = tmp_path / "starter.json"
+    workbook_path.write_text("", encoding="utf-8")
+    profile_path.write_text(
+        json.dumps(
+            {
+                "workbook": "tracker.xlsx",
+                "csv_output": "exports/tracker.csv",
+                "config": str(default_config_path()),
+                "years": 4,
+                "articles_sheet": "Articles",
+                "directory_sheet": "Journal Directory",
+                "journals": ["Party Politics", "Turkish Studies"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    args = type(
+        "Args",
+        (),
+        {
+            "profile": str(profile_path),
+            "workbook": None,
+            "config": None,
+            "years": None,
+            "dry_run": True,
+            "csv_output": None,
+        },
+    )()
+
+    profile, options = resolve_run_options(args)
+
+    assert profile is not None
+    assert profile == load_profile(profile_path)
+    assert options["workbook_path"] == workbook_path.resolve()
+    assert options["config_path"] == default_config_path()
+    assert options["years"] == 4
+    assert options["articles_sheet"] == "Articles"
+    assert options["directory_sheet"] == "Journal Directory"
+    assert options["journal_names"] == ("Party Politics", "Turkish Studies")
+    assert options["csv_output_path"] == (tmp_path / "exports" / "tracker.csv").resolve()

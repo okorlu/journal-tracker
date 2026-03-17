@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from journal_tracker.profiles import TrackingProfile, load_profile
 from journal_tracker.sync import (
     DEFAULT_YEARS,
     SyncSummary,
@@ -20,14 +21,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Sync OpenAlex publications into the journal tracker workbook."
     )
     parser.add_argument(
+        "--profile",
+        help="Optional path to a tracking profile JSON file.",
+    )
+    parser.add_argument(
         "--workbook",
-        required=True,
         help="Path to the Excel workbook that will be updated in place.",
     )
     parser.add_argument(
         "--years",
         type=int,
-        default=DEFAULT_YEARS,
         help=f"Rolling publication window in years (default: {DEFAULT_YEARS}).",
     )
     parser.add_argument(
@@ -36,7 +39,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--config",
-        default=str(default_config_path()),
         help="Path to the journal/source mapping JSON file.",
     )
     parser.add_argument(
@@ -49,6 +51,50 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Optional path to export the 'Articles' sheet as CSV.",
     )
     return parser.parse_args(argv)
+
+
+def resolve_run_options(
+    args: argparse.Namespace,
+) -> tuple[TrackingProfile | None, dict[str, object]]:
+    profile = load_profile(Path(args.profile)) if args.profile else None
+
+    workbook_path = (
+        Path(args.workbook)
+        if args.workbook
+        else profile.workbook_path if profile else None
+    )
+    if workbook_path is None:
+        raise ValueError("Missing workbook path. Use --workbook or provide it in --profile.")
+
+    config_path = (
+        Path(args.config)
+        if args.config
+        else profile.config_path
+        if profile and profile.config_path
+        else default_config_path()
+    )
+    csv_output_path = (
+        Path(args.csv_output)
+        if args.csv_output
+        else profile.csv_output_path
+        if profile
+        else None
+    )
+    options: dict[str, object] = {
+        "workbook_path": workbook_path,
+        "config_path": config_path,
+        "years": (
+            args.years
+            if args.years is not None
+            else profile.years if profile else DEFAULT_YEARS
+        ),
+        "dry_run": args.dry_run,
+        "articles_sheet": profile.articles_sheet if profile else "Articles",
+        "directory_sheet": profile.directory_sheet if profile else "Journal Directory",
+        "journal_names": profile.journal_names if profile and profile.journal_names else None,
+        "csv_output_path": csv_output_path,
+    }
+    return profile, options
 
 
 def load_env_file(dotenv_path: Path) -> None:
@@ -98,15 +144,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Missing OpenAlex API key. Use --api-key or set OPENALEX_API_KEY.", file=sys.stderr)
         return 1
 
+    try:
+        _, options = resolve_run_options(args)
+    except (FileNotFoundError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     summary = sync_workbook(
-        workbook_path=Path(args.workbook),
-        config_path=Path(args.config),
+        workbook_path=options["workbook_path"],
+        config_path=options["config_path"],
         api_key=api_key,
-        years=args.years,
-        dry_run=args.dry_run,
+        years=options["years"],
+        dry_run=options["dry_run"],
+        articles_sheet=options["articles_sheet"],
+        directory_sheet=options["directory_sheet"],
+        journal_names=options["journal_names"],
     )
     print_summary(summary)
-    if args.csv_output:
-        csv_path = export_articles_to_csv(Path(args.workbook), Path(args.csv_output))
+    if options["csv_output_path"]:
+        csv_path = export_articles_to_csv(
+            options["workbook_path"],
+            options["csv_output_path"],
+            articles_sheet_name=options["articles_sheet"],
+        )
         print(f"CSV exported: {csv_path}")
     return 0

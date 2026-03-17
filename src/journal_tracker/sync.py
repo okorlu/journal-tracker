@@ -10,7 +10,7 @@ from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Collection, Iterable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -124,16 +124,22 @@ def normalize_doi(value: str | None) -> str | None:
 def read_directory_sheet(
     workbook_path: Path,
     config: dict[str, JournalConfig],
+    directory_sheet_name: str = DIRECTORY_SHEET,
+    selected_journals: Collection[str] | None = None,
 ) -> list[JournalDirectoryEntry]:
     workbook = load_workbook(workbook_path, read_only=True, data_only=True)
-    if DIRECTORY_SHEET not in workbook.sheetnames:
-        raise ValueError(f"Workbook is missing the '{DIRECTORY_SHEET}' sheet.")
+    if directory_sheet_name not in workbook.sheetnames:
+        raise ValueError(f"Workbook is missing the '{directory_sheet_name}' sheet.")
 
-    sheet = workbook[DIRECTORY_SHEET]
+    sheet = workbook[directory_sheet_name]
+    selected_lookup = set(selected_journals or [])
+    seen_selected: set[str] = set()
     entries: list[JournalDirectoryEntry] = []
     for row in sheet.iter_rows(min_row=2, values_only=True):
         journal_name = (row[0] or "").strip()
         if not journal_name:
+            continue
+        if selected_lookup and journal_name not in selected_lookup:
             continue
         if journal_name not in config:
             raise ValueError(
@@ -141,6 +147,7 @@ def read_directory_sheet(
                 "but missing from config."
             )
         source = config[journal_name]
+        seen_selected.add(journal_name)
         entries.append(
             JournalDirectoryEntry(
                 journal_name=journal_name,
@@ -154,6 +161,14 @@ def read_directory_sheet(
             )
         )
     workbook.close()
+    if selected_lookup:
+        missing = [name for name in selected_journals or () if name not in seen_selected]
+        if missing:
+            quoted = ", ".join(f"'{name}'" for name in missing)
+            raise ValueError(
+                f"The following journals were requested but not found in "
+                f"'{directory_sheet_name}': {quoted}"
+            )
     return entries
 
 
@@ -378,12 +393,13 @@ def append_rows(
     workbook_path: Path,
     rows: list[list[Any]],
     meta_rows: list[tuple[str, str | None, str]],
+    articles_sheet_name: str = ARTICLES_SHEET,
 ) -> Path:
     workbook = load_workbook(workbook_path)
-    if ARTICLES_SHEET not in workbook.sheetnames:
-        raise ValueError(f"Workbook is missing the '{ARTICLES_SHEET}' sheet.")
+    if articles_sheet_name not in workbook.sheetnames:
+        raise ValueError(f"Workbook is missing the '{articles_sheet_name}' sheet.")
 
-    articles_sheet = workbook[ARTICLES_SHEET]
+    articles_sheet = workbook[articles_sheet_name]
     meta_sheet = ensure_meta_sheet(workbook)
     template_row = 2 if articles_sheet.max_row >= 2 else 1
     synced_at = datetime.now().isoformat(timespec="seconds")
@@ -407,15 +423,19 @@ def append_rows(
     return backup_path
 
 
-def export_articles_to_csv(workbook_path: Path, csv_path: Path) -> Path:
+def export_articles_to_csv(
+    workbook_path: Path,
+    csv_path: Path,
+    articles_sheet_name: str = ARTICLES_SHEET,
+) -> Path:
     workbook = load_workbook(workbook_path, read_only=True, data_only=True)
-    if ARTICLES_SHEET not in workbook.sheetnames:
-        raise ValueError(f"Workbook is missing the '{ARTICLES_SHEET}' sheet.")
+    if articles_sheet_name not in workbook.sheetnames:
+        raise ValueError(f"Workbook is missing the '{articles_sheet_name}' sheet.")
 
     csv_path = csv_path.expanduser().resolve()
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
-    articles_sheet = workbook[ARTICLES_SHEET]
+    articles_sheet = workbook[articles_sheet_name]
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         for row in articles_sheet.iter_rows(values_only=True):
@@ -431,6 +451,9 @@ def sync_workbook(
     api_key: str,
     years: int = DEFAULT_YEARS,
     dry_run: bool = False,
+    articles_sheet: str = ARTICLES_SHEET,
+    directory_sheet: str = DIRECTORY_SHEET,
+    journal_names: Collection[str] | None = None,
     today: date | None = None,
     fetcher: Callable[[str, date, str], list[dict[str, Any]]] = fetch_works,
 ) -> SyncSummary:
@@ -442,15 +465,22 @@ def sync_workbook(
         raise FileNotFoundError(f"Config not found: {config_path}")
 
     config = load_config(config_path)
-    directory_entries = read_directory_sheet(workbook_path, config)
+    directory_entries = read_directory_sheet(
+        workbook_path,
+        config,
+        directory_sheet_name=directory_sheet,
+        selected_journals=journal_names,
+    )
     cutoff_date = rolling_cutoff(today or date.today(), years)
 
     workbook = load_workbook(workbook_path)
-    if ARTICLES_SHEET not in workbook.sheetnames:
-        raise ValueError(f"Workbook is missing the '{ARTICLES_SHEET}' sheet.")
-    articles_sheet = workbook[ARTICLES_SHEET]
+    if articles_sheet not in workbook.sheetnames:
+        raise ValueError(f"Workbook is missing the '{articles_sheet}' sheet.")
+    articles_sheet_ref = workbook[articles_sheet]
     meta_sheet = ensure_meta_sheet(workbook)
-    doi_index, work_id_index, normalized_index = read_existing_indexes(articles_sheet, meta_sheet)
+    doi_index, work_id_index, normalized_index = read_existing_indexes(
+        articles_sheet_ref, meta_sheet
+    )
     workbook.close()
 
     journal_results: list[JournalSyncResult] = []
@@ -483,7 +513,12 @@ def sync_workbook(
 
     backup_path = None
     if not dry_run and all_new_rows:
-        backup_path = append_rows(workbook_path, all_new_rows, all_meta_rows)
+        backup_path = append_rows(
+            workbook_path,
+            all_new_rows,
+            all_meta_rows,
+            articles_sheet_name=articles_sheet,
+        )
 
     return SyncSummary(
         workbook_path=workbook_path,

@@ -51,6 +51,7 @@ or replace it with your own workbook, as long as it includes:
 
 - a `Journal Directory` sheet with your journal list
 - an `Articles` sheet for synced output
+- optionally, a profile JSON under `config/profiles/` to save your default journal subset and sheet names
 
 ## Usage
 
@@ -112,6 +113,40 @@ You can also use the module form on any platform:
 ```bash
 python -m journal_tracker.cli --workbook data/your-tracker.xlsx --dry-run
 ```
+
+## Profiles
+
+Profiles let you save a reusable tracker setup in JSON. A profile can define:
+
+- a default workbook path
+- a custom journal/source mapping file
+- the rolling year window
+- sheet names
+- a selected subset of journals from the directory sheet
+- a default CSV export path
+
+An example starter profile is included at
+`config/profiles/turkish-politics-starter.json`.
+
+Run with a profile and keep the workbook path on the command line:
+
+```bash
+.venv/bin/journal-tracker-sync \
+  --profile config/profiles/turkish-politics-starter.json \
+  --workbook data/your-tracker.xlsx \
+  --dry-run
+```
+
+If the profile already includes a workbook path, you can omit `--workbook`:
+
+```bash
+.venv/bin/journal-tracker-sync \
+  --profile path/to/your-profile.json
+```
+
+Command-line flags still win over profile defaults. For example, you can keep a
+profile's journal subset and sheet names but override the workbook or year
+window for a specific run.
 
 ## How it works
 
