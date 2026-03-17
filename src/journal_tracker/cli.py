@@ -126,8 +126,14 @@ def print_summary(summary: SyncSummary) -> None:
         f"Summary: journals={len(summary.journal_results)} fetched={summary.total_fetched} "
         f"new_rows={summary.total_new_rows} duplicates={summary.total_duplicates}"
     )
-    if summary.added_at_column_added or summary.added_at_backfilled:
+    if (
+        summary.identifier_columns_migrated
+        or summary.added_at_column_added
+        or summary.added_at_backfilled
+    ):
         migration_bits: list[str] = []
+        if summary.identifier_columns_migrated:
+            migration_bits.append("DOI/Article URL columns migrated")
         if summary.added_at_column_added:
             migration_bits.append("Added At column added")
         if summary.added_at_backfilled:
@@ -171,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         directory_sheet=options["directory_sheet"],
         journal_names=options["journal_names"],
         progress_callback=lambda message: print(message, flush=True),
+        crossref_mailto=os.getenv("CROSSREF_MAILTO"),
     )
     print_summary(summary)
     if options["csv_output_path"]:

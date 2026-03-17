@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from journal_tracker.sync import (
+    ArticleIdentifiers,
     JournalDirectoryEntry,
     build_rows,
     format_topics,
     format_volume_issue,
+    is_probably_article_url,
     normalize_doi,
     normalize_text,
+    resolve_article_identifiers,
 )
 
 
@@ -103,6 +106,48 @@ def test_build_rows_uses_doi_then_work_id_then_normalized_key_for_deduping() -> 
     assert len(rows) == 1
     assert rows[0][0] == "Brand New Article"
     assert rows[0][6] == "https://doi.org/10.1000/new"
+    assert rows[0][7] == "https://openalex.org/W4"
     assert meta_rows == [
         ("https://openalex.org/W4", "10.1000/new", "brand new article|turkish studies|2025")
     ]
+
+
+def test_is_probably_article_url_rejects_journal_level_pages() -> None:
+    assert not is_probably_article_url("https://www.tandfonline.com/toc/ftur20/current")
+    assert not is_probably_article_url(
+        "https://www.cambridge.org/core/journals/new-perspectives-on-turkey"
+    )
+    assert is_probably_article_url("https://publisher.example.org/article/my-paper")
+
+
+def test_resolve_article_identifiers_uses_crossref_when_openalex_link_is_not_article_level(
+) -> None:
+    entry = JournalDirectoryEntry(
+        journal_name="Turkish Studies",
+        publisher="Publisher",
+        circle="1st Circle",
+        cluster="Turkey-dedicated",
+        quartile="Q1",
+        website="https://example.com",
+        source_id="https://openalex.org/S77485876",
+    )
+    work = {
+        "id": "https://openalex.org/W-crossref",
+        "display_name": "Recovered DOI Article",
+        "publication_year": 2025,
+        "doi": None,
+        "primary_location": {"landing_page_url": "https://www.tandfonline.com/toc/ftur20/current"},
+        "authorships": [{"author": {"display_name": "Author Two"}}],
+    }
+
+    identifiers = resolve_article_identifiers(
+        work,
+        entry,
+        crossref_lookup=lambda _work, _entry: ArticleIdentifiers(
+            doi_url="https://doi.org/10.1000/recovered",
+            article_url="https://publisher.example.org/article/recovered",
+        ),
+    )
+
+    assert identifiers.doi_url == "https://doi.org/10.1000/recovered"
+    assert identifiers.article_url == "https://publisher.example.org/article/recovered"

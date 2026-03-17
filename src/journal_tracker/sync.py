@@ -12,7 +12,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Collection, Iterable
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from openpyxl import load_workbook
@@ -24,8 +24,15 @@ META_SHEET = "_openalex_sync_meta"
 DEFAULT_PER_PAGE = 200
 DEFAULT_YEARS = 3
 OPENALEX_API_URL = "https://api.openalex.org/works"
-ARTICLE_LINK_COLUMN = 7
+DOI_COLUMN = 7
+ARTICLE_URL_COLUMN = 8
+CLUSTER_COLUMN = 9
+KEY_TOPICS_COLUMN = 10
 ADDED_AT_HEADER = "Added At"
+DOI_HEADER = "DOI"
+ARTICLE_URL_HEADER = "Article URL"
+LEGACY_LINK_HEADER = "DOI/Link"
+CROSSREF_API_URL = "https://api.crossref.org/works"
 ProgressCallback = Callable[[str], None]
 
 
@@ -69,6 +76,7 @@ class SyncSummary:
     dry_run: bool
     backup_path: Path | None = None
     workbook_changed: bool = False
+    identifier_columns_migrated: bool = False
     added_at_column_added: bool = False
     added_at_backfilled: int = 0
 
@@ -77,8 +85,21 @@ class SyncSummary:
 class WorkbookWriteResult:
     backup_path: Path
     workbook_changed: bool
+    identifier_columns_migrated: bool
     added_at_column_added: bool
     added_at_backfilled: int
+
+
+@dataclass(frozen=True)
+class ArticleIdentifiers:
+    doi_url: str
+    article_url: str
+
+
+@dataclass(frozen=True)
+class CrossrefCandidate:
+    doi_url: str
+    article_url: str
 
 
 def default_config_path() -> Path:
@@ -104,16 +125,27 @@ def emit_progress(progress_callback: ProgressCallback | None, message: str) -> N
         progress_callback(message)
 
 
-def openalex_get(url: str) -> dict[str, Any]:
+def json_get(url: str, user_agent: str) -> dict[str, Any]:
     request = Request(
         url,
         headers={
-            "User-Agent": "journal-tracker-openalex-sync/1.0",
+            "User-Agent": user_agent,
             "Accept": "application/json",
         },
     )
     with urlopen(request, timeout=60) as response:
         return json.load(response)
+
+
+def openalex_get(url: str) -> dict[str, Any]:
+    return json_get(url, "journal-tracker-openalex-sync/1.0")
+
+
+def crossref_get(url: str, mailto: str | None = None) -> dict[str, Any]:
+    user_agent = "journal-tracker-crossref-enrichment/1.0"
+    if mailto:
+        user_agent = f"{user_agent} (mailto:{mailto})"
+    return json_get(url, user_agent)
 
 
 def rolling_cutoff(today: date, years: int) -> date:
@@ -279,14 +311,182 @@ def format_topics(work: dict[str, Any]) -> str:
     return ", ".join(items)
 
 
-def best_link(work: dict[str, Any]) -> str:
-    doi = work.get("doi")
-    if doi:
-        return doi
+def doi_url(value: str | None) -> str:
+    normalized = normalize_doi(value)
+    if not normalized:
+        return ""
+    return f"https://doi.org/{normalized}"
+
+
+def is_probably_article_url(value: str | None) -> bool:
+    if not value:
+        return False
+
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+
+    path = parsed.path.lower().rstrip("/")
+    host = parsed.netloc.lower()
+
+    blocked_fragments = (
+        "/toc/",
+        "/current",
+        "/latest-issue",
+        "/issues",
+        "/journal/",
+    )
+    if any(fragment in path for fragment in blocked_fragments):
+        return False
+
+    if "tandfonline.com" in host and "/doi/" not in path:
+        return False
+    if "cambridge.org" in host and "/article/" not in path:
+        return False
+    if "researchgate.net" in host and "/journal/" in path:
+        return False
+    if path in {"", "/"}:
+        return False
+
+    return True
+
+
+def first_author_last_name(authorships: Iterable[dict[str, Any]]) -> str:
+    for authorship in authorships:
+        author = authorship.get("author") or {}
+        name = (author.get("display_name") or authorship.get("raw_author_name") or "").strip()
+        if name:
+            return normalize_text(name.split()[-1])
+    return ""
+
+
+def crossref_year(item: dict[str, Any]) -> int | None:
+    for key in ("published-print", "published-online", "issued"):
+        date_parts = ((item.get(key) or {}).get("date-parts") or [])
+        if date_parts and date_parts[0]:
+            return int(date_parts[0][0])
+    return None
+
+
+def crossref_first_author_last_name(item: dict[str, Any]) -> str:
+    authors = item.get("author") or []
+    if not authors:
+        return ""
+    author = authors[0] or {}
+    family = (author.get("family") or "").strip()
+    if family:
+        return normalize_text(family)
+    given = (author.get("given") or "").strip()
+    if given:
+        return normalize_text(given.split()[-1])
+    return ""
+
+
+def lookup_crossref_candidate(
+    work: dict[str, Any],
+    directory_entry: JournalDirectoryEntry,
+    mailto: str | None = None,
+    getter: Callable[[str, str | None], dict[str, Any]] = crossref_get,
+) -> CrossrefCandidate | None:
+    title = (work.get("display_name") or "").strip()
+    if not title:
+        return None
+
+    query_parts = [title]
+    author_last_name = first_author_last_name(work.get("authorships") or [])
+    if author_last_name:
+        query_parts.append(author_last_name)
+    publication_year = work.get("publication_year")
+    if publication_year:
+        query_parts.append(str(publication_year))
+
+    params = {
+        "rows": "5",
+        "query.bibliographic": " ".join(query_parts),
+        "select": (
+            "DOI,URL,title,container-title,author,"
+            "published-print,published-online,issued,score"
+        ),
+    }
+    url = f"{CROSSREF_API_URL}?{urlencode(params)}"
+
+    try:
+        payload = getter(url, mailto)
+    except Exception:
+        return None
+
+    target_title = normalize_text(title)
+    expected_journals = {
+        normalize_text(directory_entry.journal_name),
+        normalize_text(directory_entry.alias or ""),
+    }
+    expected_journals.discard("")
+    target_year = int(publication_year) if publication_year else None
+    target_author = author_last_name
+
+    for item in (payload.get("message") or {}).get("items", []):
+        candidate_titles = item.get("title") or []
+        if not candidate_titles:
+            continue
+        if normalize_text(candidate_titles[0]) != target_title:
+            continue
+
+        container_titles = {
+            normalize_text(value)
+            for value in (item.get("container-title") or [])
+            if value
+        }
+        if (
+            expected_journals
+            and container_titles
+            and not container_titles.intersection(expected_journals)
+        ):
+            continue
+
+        candidate_year = crossref_year(item)
+        if target_year and candidate_year and candidate_year != target_year:
+            continue
+
+        candidate_author = crossref_first_author_last_name(item)
+        if target_author and candidate_author and target_author != candidate_author:
+            continue
+
+        return CrossrefCandidate(
+            doi_url=doi_url(item.get("DOI")),
+            article_url=item.get("URL") or "",
+        )
+
+    return None
+
+
+def resolve_article_identifiers(
+    work: dict[str, Any],
+    directory_entry: JournalDirectoryEntry,
+    crossref_lookup: Callable[[dict[str, Any], JournalDirectoryEntry], CrossrefCandidate | None]
+    | None = None,
+) -> ArticleIdentifiers:
+    resolved_doi_url = doi_url(work.get("doi"))
     primary_location = work.get("primary_location") or {}
-    if primary_location.get("landing_page_url"):
-        return primary_location["landing_page_url"]
-    return work.get("id") or ""
+    article_url = ""
+    landing_page_url = primary_location.get("landing_page_url")
+    if is_probably_article_url(landing_page_url):
+        article_url = landing_page_url
+
+    if crossref_lookup and (not resolved_doi_url or not article_url):
+        candidate = crossref_lookup(work, directory_entry)
+        if candidate:
+            if not resolved_doi_url and candidate.doi_url:
+                resolved_doi_url = candidate.doi_url
+            if not article_url and is_probably_article_url(candidate.article_url):
+                article_url = candidate.article_url
+
+    if not article_url:
+        article_url = work.get("id") or ""
+
+    return ArticleIdentifiers(
+        doi_url=resolved_doi_url,
+        article_url=article_url,
+    )
 
 
 def normalized_title_key(title: str, journal: str, year: Any) -> str:
@@ -324,6 +524,56 @@ def clone_cell_style(source, target) -> None:
         target.alignment = copy(source.alignment)
     if source.protection:
         target.protection = copy(source.protection)
+
+
+def set_cell_link(cell, value: str) -> None:
+    cell.value = value
+    cell.hyperlink = value if value else None
+
+
+def ensure_identifier_columns(articles_sheet) -> tuple[int, int, bool]:
+    headers = [
+        (articles_sheet.cell(row=1, column=column_index).value or "").strip()
+        for column_index in range(1, articles_sheet.max_column + 1)
+    ]
+    if DOI_HEADER in headers and ARTICLE_URL_HEADER in headers:
+        return headers.index(DOI_HEADER) + 1, headers.index(ARTICLE_URL_HEADER) + 1, False
+
+    if LEGACY_LINK_HEADER not in headers:
+        raise ValueError(
+            f"Articles sheet must include '{DOI_HEADER}' and '{ARTICLE_URL_HEADER}' "
+            f"or legacy '{LEGACY_LINK_HEADER}'."
+        )
+
+    legacy_column = headers.index(LEGACY_LINK_HEADER) + 1
+    articles_sheet.insert_cols(legacy_column + 1)
+    articles_sheet.cell(row=1, column=legacy_column).value = DOI_HEADER
+    article_url_header_cell = articles_sheet.cell(row=1, column=legacy_column + 1)
+    clone_cell_style(articles_sheet.cell(row=1, column=legacy_column), article_url_header_cell)
+    article_url_header_cell.value = ARTICLE_URL_HEADER
+
+    source_letter = get_column_letter(legacy_column)
+    target_letter = get_column_letter(legacy_column + 1)
+    source_width = articles_sheet.column_dimensions[source_letter].width
+    if source_width is not None:
+        articles_sheet.column_dimensions[target_letter].width = source_width
+
+    for row_index in range(2, articles_sheet.max_row + 1):
+        doi_cell = articles_sheet.cell(row=row_index, column=legacy_column)
+        article_url_cell = articles_sheet.cell(row=row_index, column=legacy_column + 1)
+        clone_cell_style(doi_cell, article_url_cell)
+
+        legacy_value = str(doi_cell.value or "").strip()
+        legacy_link = doi_cell.hyperlink.target if doi_cell.hyperlink else legacy_value
+        normalized = normalize_doi(legacy_value or legacy_link)
+        if normalized:
+            set_cell_link(doi_cell, doi_url(normalized))
+            set_cell_link(article_url_cell, "")
+        else:
+            set_cell_link(doi_cell, "")
+            set_cell_link(article_url_cell, legacy_link if legacy_link else legacy_value)
+
+    return legacy_column, legacy_column + 1, True
 
 
 def ensure_added_at_column(articles_sheet) -> tuple[int, bool]:
@@ -387,13 +637,25 @@ def prepare_articles_sheet(workbook, articles_sheet_name: str):
 
     articles_sheet = workbook[articles_sheet_name]
     meta_sheet = ensure_meta_sheet(workbook)
+    doi_column, article_url_column, identifier_columns_migrated = ensure_identifier_columns(
+        articles_sheet
+    )
     added_at_column, added_at_column_added = ensure_added_at_column(articles_sheet)
     added_at_backfilled = backfill_added_at_from_meta(
         articles_sheet,
         meta_sheet,
         added_at_column,
     )
-    return articles_sheet, meta_sheet, added_at_column, added_at_column_added, added_at_backfilled
+    return (
+        articles_sheet,
+        meta_sheet,
+        doi_column,
+        article_url_column,
+        added_at_column,
+        identifier_columns_migrated,
+        added_at_column_added,
+        added_at_backfilled,
+    )
 
 
 def read_existing_indexes(articles_sheet, meta_sheet) -> tuple[set[str], set[str], set[str]]:
@@ -405,8 +667,8 @@ def read_existing_indexes(articles_sheet, meta_sheet) -> tuple[set[str], set[str
         title = row[0].value or ""
         journal = row[2].value or ""
         year = row[4].value or ""
-        link = row[6].value or ""
-        doi = normalize_doi(link)
+        doi_value = row[DOI_COLUMN - 1].value or ""
+        doi = normalize_doi(doi_value)
         if doi:
             doi_index.add(doi)
         normalized_index.add(normalized_title_key(str(title), str(journal), year))
@@ -431,6 +693,8 @@ def build_rows(
     doi_index: set[str],
     work_id_index: set[str],
     normalized_index: set[str],
+    crossref_lookup: Callable[[dict[str, Any], JournalDirectoryEntry], CrossrefCandidate | None]
+    | None = None,
 ) -> tuple[list[list[Any]], list[tuple[str, str | None, str]], int]:
     rows: list[list[Any]] = []
     meta_rows: list[tuple[str, str | None, str]] = []
@@ -465,6 +729,11 @@ def build_rows(
             continue
 
         biblio = work.get("biblio") or {}
+        identifiers = resolve_article_identifiers(
+            work,
+            directory_entry,
+            crossref_lookup=crossref_lookup,
+        )
         rows.append(
             [
                 work.get("display_name") or "",
@@ -473,7 +742,8 @@ def build_rows(
                 format_volume_issue(biblio),
                 work.get("publication_year") or "",
                 format_pages(biblio),
-                best_link(work),
+                identifiers.doi_url,
+                identifiers.article_url,
                 directory_entry.cluster,
                 format_topics(work),
             ]
@@ -507,13 +777,21 @@ def append_rows(
     (
         articles_sheet,
         meta_sheet,
+        doi_column,
+        article_url_column,
         added_at_column,
+        identifier_columns_migrated,
         added_at_column_added,
         added_at_backfilled,
     ) = prepare_articles_sheet(workbook, articles_sheet_name)
     template_row = 2 if articles_sheet.max_row >= 2 else 1
     synced_at = datetime.now().isoformat(timespec="seconds")
-    workbook_changed = added_at_column_added or added_at_backfilled > 0 or bool(rows)
+    workbook_changed = (
+        identifier_columns_migrated
+        or added_at_column_added
+        or added_at_backfilled > 0
+        or bool(rows)
+    )
 
     for values, meta in zip(rows, meta_rows):
         next_row = articles_sheet.max_row + 1
@@ -521,7 +799,7 @@ def append_rows(
         for column_index, value in enumerate(values, start=1):
             cell = articles_sheet.cell(row=next_row, column=column_index)
             cell.value = value
-            if column_index == ARTICLE_LINK_COLUMN and value:
+            if column_index in {doi_column, article_url_column} and value:
                 cell.hyperlink = value
         articles_sheet.cell(row=next_row, column=added_at_column).value = synced_at
         meta_sheet.append([meta[0], meta[1], meta[2], synced_at])
@@ -535,6 +813,7 @@ def append_rows(
     return WorkbookWriteResult(
         backup_path=backup_path,
         workbook_changed=workbook_changed,
+        identifier_columns_migrated=identifier_columns_migrated,
         added_at_column_added=added_at_column_added,
         added_at_backfilled=added_at_backfilled,
     )
@@ -562,6 +841,13 @@ def export_articles_to_csv(
             return csv_path
 
         header_values = ["" if value is None else value for value in header]
+        if LEGACY_LINK_HEADER in header_values:
+            legacy_index = header_values.index(LEGACY_LINK_HEADER)
+            header_values = (
+                header_values[:legacy_index]
+                + [DOI_HEADER, ARTICLE_URL_HEADER]
+                + header_values[legacy_index + 1 :]
+            )
         has_added_at = ADDED_AT_HEADER in header_values
         if not has_added_at:
             header_values.append(ADDED_AT_HEADER)
@@ -569,6 +855,24 @@ def export_articles_to_csv(
 
         for row in rows:
             values = ["" if value is None else value for value in row]
+            if LEGACY_LINK_HEADER in ["" if value is None else value for value in header]:
+                legacy_index = ["" if value is None else value for value in header].index(
+                    LEGACY_LINK_HEADER
+                )
+                legacy_value = values[legacy_index]
+                normalized = normalize_doi(legacy_value)
+                if normalized:
+                    values = (
+                        values[:legacy_index]
+                        + [doi_url(normalized), ""]
+                        + values[legacy_index + 1 :]
+                    )
+                else:
+                    values = (
+                        values[:legacy_index]
+                        + ["", legacy_value]
+                        + values[legacy_index + 1 :]
+                    )
             if not has_added_at:
                 values.append("")
             writer.writerow(values)
@@ -589,6 +893,9 @@ def sync_workbook(
     today: date | None = None,
     fetcher: Callable[[str, date, str], list[dict[str, Any]]] = fetch_works,
     progress_callback: ProgressCallback | None = None,
+    crossref_mailto: str | None = None,
+    crossref_lookup: Callable[[dict[str, Any], JournalDirectoryEntry], CrossrefCandidate | None]
+    | None = None,
 ) -> SyncSummary:
     workbook_path = workbook_path.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
@@ -616,7 +923,10 @@ def sync_workbook(
     (
         articles_sheet_ref,
         meta_sheet,
+        doi_column,
+        article_url_column,
         added_at_column,
+        identifier_columns_migrated,
         added_at_column_added,
         added_at_backfilled,
     ) = prepare_articles_sheet(workbook, articles_sheet)
@@ -624,13 +934,32 @@ def sync_workbook(
         articles_sheet_ref, meta_sheet
     )
     workbook.close()
-    del added_at_column
+    del doi_column, article_url_column, added_at_column
 
     journal_results: list[JournalSyncResult] = []
     all_new_rows: list[list[Any]] = []
     all_meta_rows: list[tuple[str, str | None, str]] = []
     total_fetched = 0
     total_duplicates = 0
+    if crossref_lookup is None:
+        crossref_cache: dict[str, CrossrefCandidate | None] = {}
+
+        def crossref_lookup(
+            work: dict[str, Any],
+            directory_entry: JournalDirectoryEntry,
+        ) -> CrossrefCandidate | None:
+            cache_key = normalized_title_key(
+                work.get("display_name") or "",
+                directory_entry.journal_name,
+                work.get("publication_year") or "",
+            )
+            if cache_key not in crossref_cache:
+                crossref_cache[cache_key] = lookup_crossref_candidate(
+                    work,
+                    directory_entry,
+                    mailto=crossref_mailto,
+                )
+            return crossref_cache[cache_key]
 
     for index, entry in enumerate(directory_entries, start=1):
         emit_progress(
@@ -653,6 +982,7 @@ def sync_workbook(
             doi_index,
             work_id_index,
             normalized_index,
+            crossref_lookup=crossref_lookup,
         )
         emit_progress(
             progress_callback,
@@ -673,7 +1003,11 @@ def sync_workbook(
         all_meta_rows.extend(meta_rows)
 
     backup_path = None
-    workbook_changed = added_at_column_added or added_at_backfilled > 0
+    workbook_changed = (
+        identifier_columns_migrated
+        or added_at_column_added
+        or added_at_backfilled > 0
+    )
     if not dry_run and (all_new_rows or workbook_changed):
         emit_progress(
             progress_callback,
@@ -687,6 +1021,7 @@ def sync_workbook(
         )
         backup_path = write_result.backup_path
         workbook_changed = write_result.workbook_changed
+        identifier_columns_migrated = write_result.identifier_columns_migrated
         added_at_column_added = write_result.added_at_column_added
         added_at_backfilled = write_result.added_at_backfilled
 
@@ -700,6 +1035,7 @@ def sync_workbook(
         dry_run=dry_run,
         backup_path=backup_path,
         workbook_changed=workbook_changed,
+        identifier_columns_migrated=identifier_columns_migrated,
         added_at_column_added=added_at_column_added,
         added_at_backfilled=added_at_backfilled,
     )

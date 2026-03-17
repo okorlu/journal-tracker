@@ -156,7 +156,7 @@ window for a specific run.
 - Fetches records from the rolling last 3 years using OpenAlex cursor paging.
 - Prints live progress messages while it works through the journal list.
 - Writes `Article Title`, `Author(s)`, `Journal`, `Volume/Issue`, `Year`,
-  `Pages`, `DOI/Link`, `Cluster`, `Key Topics`, and `Added At`.
+  `Pages`, `DOI`, `Article URL`, `Cluster`, `Key Topics`, and `Added At`.
 - Can also export the `Articles` sheet as a CSV file when
   `--csv-output` is provided.
 - Preserves sheet styling by cloning the first visible data row style.
@@ -231,5 +231,7 @@ Install pre-commit hooks:
 
 - `Key Topics` prefers OpenAlex `keywords`, then falls back to `topics`.
 - Dedupe order is DOI, then OpenAlex work ID, then normalized `title + journal + year`.
+- `DOI` is kept separate from `Article URL`; when OpenAlex does not provide a DOI,
+  the sync can try a conservative Crossref match instead of writing a journal home page URL.
 - OpenAlex premium-only filters such as `from_created_date` are intentionally not used.
 - Re-running the same command next month will scan the rolling 3-year window again and append only unseen records.
