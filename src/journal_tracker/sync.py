@@ -767,6 +767,13 @@ def clone_row_style(sheet, template_row: int, target_row: int, total_columns: in
         sheet.row_dimensions[target_row].height = sheet.row_dimensions[template_row].height
 
 
+def row_has_data(sheet, row_index: int, total_columns: int) -> bool:
+    for column_index in range(1, total_columns + 1):
+        if sheet.cell(row=row_index, column=column_index).value not in (None, ""):
+            return True
+    return False
+
+
 def append_rows(
     workbook_path: Path,
     rows: list[list[Any]],
@@ -794,7 +801,13 @@ def append_rows(
     )
 
     for values, meta in zip(rows, meta_rows):
-        next_row = articles_sheet.max_row + 1
+        if (
+            articles_sheet.max_row >= 2
+            and not row_has_data(articles_sheet, 2, articles_sheet.max_column)
+        ):
+            next_row = 2
+        else:
+            next_row = articles_sheet.max_row + 1
         clone_row_style(articles_sheet, template_row, next_row, articles_sheet.max_column)
         for column_index, value in enumerate(values, start=1):
             cell = articles_sheet.cell(row=next_row, column=column_index)
