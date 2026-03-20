@@ -146,7 +146,7 @@ If the profile already includes a workbook path, you can omit `--workbook`:
 
 Command-line flags still win over profile defaults. For example, you can keep a
 profile's journal subset and sheet names but override the workbook or year
-window for a specific run.
+window for a specific run. The rolling year window must be greater than `0`.
 
 ## How it works
 

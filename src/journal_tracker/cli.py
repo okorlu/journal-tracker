@@ -16,6 +16,16 @@ from journal_tracker.sync import (
 )
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sync OpenAlex publications into the journal tracker workbook."
@@ -30,7 +40,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--years",
-        type=int,
+        type=positive_int,
         help=f"Rolling publication window in years (default: {DEFAULT_YEARS}).",
     )
     parser.add_argument(
@@ -80,14 +90,13 @@ def resolve_run_options(
         if profile
         else None
     )
+    years = args.years if args.years is not None else profile.years if profile else DEFAULT_YEARS
+    if years <= 0:
+        raise ValueError("Years must be greater than 0.")
     options: dict[str, object] = {
         "workbook_path": workbook_path,
         "config_path": config_path,
-        "years": (
-            args.years
-            if args.years is not None
-            else profile.years if profile else DEFAULT_YEARS
-        ),
+        "years": years,
         "dry_run": args.dry_run,
         "articles_sheet": profile.articles_sheet if profile else "Articles",
         "directory_sheet": profile.directory_sheet if profile else "Journal Directory",
