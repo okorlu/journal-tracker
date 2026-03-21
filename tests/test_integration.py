@@ -252,7 +252,14 @@ def test_resolve_run_options_normalizes_direct_cli_paths(tmp_path: Path, monkeyp
 
     home_dir = tmp_path / "home"
     home_dir.mkdir()
+    home_dir_str = str(home_dir)
     monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("USERPROFILE", home_dir_str)
+    monkeypatch.setenv("HOMEDRIVE", home_dir.drive or "")
+    monkeypatch.setenv(
+        "HOMEPATH",
+        home_dir_str[len(home_dir.drive) :] if home_dir.drive else home_dir_str,
+    )
 
     relative_workbook = Path("tracker.xlsx")
     relative_config = Path("sources.json")
