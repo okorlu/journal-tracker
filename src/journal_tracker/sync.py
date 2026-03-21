@@ -195,8 +195,7 @@ def read_directory_sheet(
             continue
         if journal_name not in config:
             raise ValueError(
-                f"Journal '{journal_name}' is present in the workbook "
-                "but missing from config."
+                f"Journal '{journal_name}' is present in the workbook but missing from config."
             )
         source = config[journal_name]
         seen_selected.add(journal_name)
@@ -362,7 +361,7 @@ def first_author_last_name(authorships: Iterable[dict[str, Any]]) -> str:
 
 def crossref_year(item: dict[str, Any]) -> int | None:
     for key in ("published-print", "published-online", "issued"):
-        date_parts = ((item.get(key) or {}).get("date-parts") or [])
+        date_parts = (item.get(key) or {}).get("date-parts") or []
         if date_parts and date_parts[0]:
             return int(date_parts[0][0])
     return None
@@ -404,8 +403,7 @@ def lookup_crossref_candidate(
         "rows": "5",
         "query.bibliographic": " ".join(query_parts),
         "select": (
-            "DOI,URL,title,container-title,author,"
-            "published-print,published-online,issued,score"
+            "DOI,URL,title,container-title,author,published-print,published-online,issued,score"
         ),
     }
     url = f"{CROSSREF_API_URL}?{urlencode(params)}"
@@ -432,9 +430,7 @@ def lookup_crossref_candidate(
             continue
 
         container_titles = {
-            normalize_text(value)
-            for value in (item.get("container-title") or [])
-            if value
+            normalize_text(value) for value in (item.get("container-title") or []) if value
         }
         if (
             expected_journals
@@ -801,9 +797,8 @@ def append_rows(
     )
 
     for values, meta in zip(rows, meta_rows):
-        if (
-            articles_sheet.max_row >= 2
-            and not row_has_data(articles_sheet, 2, articles_sheet.max_column)
+        if articles_sheet.max_row >= 2 and not row_has_data(
+            articles_sheet, 2, articles_sheet.max_column
         ):
             next_row = 2
         else:
@@ -881,11 +876,7 @@ def export_articles_to_csv(
                         + values[legacy_index + 1 :]
                     )
                 else:
-                    values = (
-                        values[:legacy_index]
-                        + ["", legacy_value]
-                        + values[legacy_index + 1 :]
-                    )
+                    values = values[:legacy_index] + ["", legacy_value] + values[legacy_index + 1 :]
             if not has_added_at:
                 values.append("")
             writer.writerow(values)
@@ -1017,9 +1008,7 @@ def sync_workbook(
 
     backup_path = None
     workbook_changed = (
-        identifier_columns_migrated
-        or added_at_column_added
-        or added_at_backfilled > 0
+        identifier_columns_migrated or added_at_column_added or added_at_backfilled > 0
     )
     if not dry_run and (all_new_rows or workbook_changed):
         emit_progress(

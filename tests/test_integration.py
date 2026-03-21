@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import shutil
 from datetime import date
 from pathlib import Path
 
 from openpyxl import load_workbook
 
-from journal_tracker.cli import resolve_run_options
+from journal_tracker.cli import env_file_candidates, load_runtime_env, resolve_run_options
 from journal_tracker.profiles import load_profile
 from journal_tracker.sync import (
     META_SHEET,
@@ -237,6 +238,96 @@ def test_profile_can_supply_paths_and_defaults(tmp_path: Path) -> None:
     assert options["directory_sheet"] == "Journal Directory"
     assert options["journal_names"] == ("Party Politics", "Turkish Studies")
     assert options["csv_output_path"] == (tmp_path / "exports" / "tracker.csv").resolve()
+
+
+def test_resolve_run_options_normalizes_direct_cli_paths(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    workbook_path = workspace / "tracker.xlsx"
+    config_path = workspace / "sources.json"
+    csv_path = workspace / "exports" / "tracker.csv"
+    workbook_path.write_text("", encoding="utf-8")
+    config_path.write_text("[]", encoding="utf-8")
+    csv_path.parent.mkdir()
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    relative_workbook = Path("tracker.xlsx")
+    relative_config = Path("sources.json")
+    tilde_csv = "~/journal-tracker.csv"
+
+    args = type(
+        "Args",
+        (),
+        {
+            "profile": None,
+            "workbook": str(relative_workbook),
+            "config": str(relative_config),
+            "years": None,
+            "dry_run": True,
+            "csv_output": tilde_csv,
+        },
+    )()
+
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        _, options = resolve_run_options(args)
+    finally:
+        os.chdir(original_cwd)
+
+    assert options["workbook_path"] == workbook_path.resolve()
+    assert options["config_path"] == config_path.resolve()
+    assert options["csv_output_path"] == (home_dir / "journal-tracker.csv").resolve()
+
+
+def test_env_file_candidates_prefer_run_contexts_and_dedupe(tmp_path: Path) -> None:
+    current_dir = tmp_path / "cwd"
+    profile_dir = tmp_path / "profiles"
+    workbook_dir = tmp_path / "data"
+    for directory in (current_dir, profile_dir, workbook_dir):
+        directory.mkdir()
+
+    profile_path = profile_dir / "starter.json"
+    profile_path.write_text(json.dumps({"workbook": "../data/tracker.xlsx"}), encoding="utf-8")
+    profile = load_profile(profile_path)
+    assert profile.workbook_path is not None
+
+    candidates = env_file_candidates(current_dir, profile, profile.workbook_path)
+
+    assert candidates[0] == (profile_dir / ".env").resolve()
+    assert candidates[1] == (workbook_dir / ".env").resolve()
+    assert candidates[-1] == (current_dir / ".env").resolve()
+    assert len(candidates) == len(set(candidates))
+
+
+def test_load_runtime_env_finds_repo_env_outside_repo_root(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    workbook_path = workspace / "tracker.xlsx"
+    workbook_path.write_text("", encoding="utf-8")
+
+    original_cwd = Path.cwd()
+    repo_env_path = Path("src/journal_tracker/cli.py").resolve().parents[2] / ".env"
+    original_repo_env = (
+        repo_env_path.read_text(encoding="utf-8") if repo_env_path.exists() else None
+    )
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+
+    try:
+        os.chdir(tmp_path)
+        repo_env_path.write_text("OPENALEX_API_KEY=repo-test-key\n", encoding="utf-8")
+        load_runtime_env(None, workbook_path)
+    finally:
+        os.chdir(original_cwd)
+        if original_repo_env is None:
+            repo_env_path.unlink(missing_ok=True)
+        else:
+            repo_env_path.write_text(original_repo_env, encoding="utf-8")
+
+    assert os.getenv("OPENALEX_API_KEY") == "repo-test-key"
 
 
 def test_sync_workbook_emits_progress_messages(tmp_path: Path) -> None:

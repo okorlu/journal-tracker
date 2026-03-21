@@ -16,6 +16,10 @@ from journal_tracker.sync import (
 )
 
 
+def resolve_cli_path(value: str) -> Path:
+    return Path(value).expanduser().resolve()
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sync OpenAlex publications into the journal tracker workbook."
@@ -59,22 +63,24 @@ def resolve_run_options(
     profile = load_profile(Path(args.profile)) if args.profile else None
 
     workbook_path = (
-        Path(args.workbook)
+        resolve_cli_path(args.workbook)
         if args.workbook
-        else profile.workbook_path if profile else None
+        else profile.workbook_path
+        if profile
+        else None
     )
     if workbook_path is None:
         raise ValueError("Missing workbook path. Use --workbook or provide it in --profile.")
 
     config_path = (
-        Path(args.config)
+        resolve_cli_path(args.config)
         if args.config
         else profile.config_path
         if profile and profile.config_path
         else default_config_path()
     )
     csv_output_path = (
-        Path(args.csv_output)
+        resolve_cli_path(args.csv_output)
         if args.csv_output
         else profile.csv_output_path
         if profile
@@ -84,9 +90,7 @@ def resolve_run_options(
         "workbook_path": workbook_path,
         "config_path": config_path,
         "years": (
-            args.years
-            if args.years is not None
-            else profile.years if profile else DEFAULT_YEARS
+            args.years if args.years is not None else profile.years if profile else DEFAULT_YEARS
         ),
         "dry_run": args.dry_run,
         "articles_sheet": profile.articles_sheet if profile else "Articles",
@@ -109,6 +113,35 @@ def load_env_file(dotenv_path: Path) -> None:
         key = key.strip()
         value = value.strip().strip("'").strip('"')
         os.environ.setdefault(key, value)
+
+
+def env_file_candidates(
+    current_dir: Path,
+    profile: TrackingProfile | None,
+    workbook_path: Path,
+) -> tuple[Path, ...]:
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        profile.profile_path.parent / ".env" if profile else None,
+        workbook_path.parent / ".env",
+        repo_root / ".env",
+        current_dir / ".env",
+    ]
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        resolved = candidate.expanduser().resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            ordered.append(resolved)
+    return tuple(ordered)
+
+
+def load_runtime_env(profile: TrackingProfile | None, workbook_path: Path) -> None:
+    for dotenv_path in env_file_candidates(Path.cwd(), profile, workbook_path):
+        load_env_file(dotenv_path)
 
 
 def print_summary(summary: SyncSummary) -> None:
@@ -150,17 +183,17 @@ def print_summary(summary: SyncSummary) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    load_env_file(Path(".env"))
+    try:
+        profile, options = resolve_run_options(args)
+    except (FileNotFoundError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    load_runtime_env(profile, options["workbook_path"])
     api_key = args.api_key or os.getenv("OPENALEX_API_KEY")
 
     if not api_key:
         print("Missing OpenAlex API key. Use --api-key or set OPENALEX_API_KEY.", file=sys.stderr)
-        return 1
-
-    try:
-        _, options = resolve_run_options(args)
-    except (FileNotFoundError, ValueError) as exc:
-        print(str(exc), file=sys.stderr)
         return 1
 
     print("Starting journal sync...", flush=True)

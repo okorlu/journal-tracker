@@ -120,8 +120,9 @@ def test_is_probably_article_url_rejects_journal_level_pages() -> None:
     assert is_probably_article_url("https://publisher.example.org/article/my-paper")
 
 
-def test_resolve_article_identifiers_uses_crossref_when_openalex_link_is_not_article_level(
-) -> None:
+def test_resolve_article_identifiers_uses_crossref_when_openalex_link_is_not_article_level() -> (
+    None
+):
     entry = JournalDirectoryEntry(
         journal_name="Turkish Studies",
         publisher="Publisher",

@@ -46,6 +46,11 @@ Edit `.env` and set:
 OPENALEX_API_KEY=your-key-here
 ```
 
+The CLI looks for `.env` files in a few sensible places: next to your profile,
+next to your workbook, in the repository root, and in your current working
+directory. That makes it easier to run the command from outside the repo root
+without re-exporting your API key each time.
+
 The sample workbook is only a starting point. You can keep its structure as-is
 or replace it with your own workbook, as long as it includes:
 
@@ -147,6 +152,10 @@ If the profile already includes a workbook path, you can omit `--workbook`:
 Command-line flags still win over profile defaults. For example, you can keep a
 profile's journal subset and sheet names but override the workbook or year
 window for a specific run.
+
+CLI paths passed to `--workbook`, `--config`, and `--csv-output` can use
+relative paths or `~`. Relative CLI paths resolve from your current working
+directory, while profile paths resolve from the profile file's directory.
 
 ## How it works
 
