@@ -130,6 +130,10 @@ Profiles let you save a reusable tracker setup in JSON. A profile can define:
 - a selected subset of journals from the directory sheet
 - a default CSV export path
 
+Profiles are validated when loaded. Common mistakes such as a blank sheet name,
+`"years": 0`, or `"journals": "Party Politics"` now fail early with a clear
+error message instead of producing confusing behavior later in the sync.
+
 An example starter profile is included at
 `config/profiles/turkish-politics-starter.json`.
 

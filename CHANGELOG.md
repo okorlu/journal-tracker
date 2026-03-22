@@ -39,6 +39,8 @@ impact.
   pages instead of article-level links.
 - Fixed long-running sync runs appearing idle in the terminal by surfacing
   incremental progress as the job proceeds.
+- Fixed malformed tracking profiles failing late with confusing errors by
+  validating profile field types and blank values when profiles are loaded.
 
 ### Validation
 

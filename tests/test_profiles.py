@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from journal_tracker.profiles import load_profile
 from journal_tracker.sync import ARTICLES_SHEET, DIRECTORY_SHEET
 
@@ -56,3 +58,27 @@ def test_load_profile_uses_default_sheets_and_name(tmp_path: Path) -> None:
     assert profile.articles_sheet == ARTICLES_SHEET
     assert profile.directory_sheet == DIRECTORY_SHEET
     assert profile.journal_names == ()
+
+
+def test_load_profile_rejects_non_list_journals_field(tmp_path: Path) -> None:
+    profile_path = tmp_path / "starter.json"
+    profile_path.write_text(json.dumps({"journals": "Party Politics"}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="field 'journals' must be a JSON array of strings"):
+        load_profile(profile_path)
+
+
+def test_load_profile_rejects_non_positive_years(tmp_path: Path) -> None:
+    profile_path = tmp_path / "starter.json"
+    profile_path.write_text(json.dumps({"years": 0}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="field 'years' must be a positive integer"):
+        load_profile(profile_path)
+
+
+def test_load_profile_rejects_blank_sheet_names(tmp_path: Path) -> None:
+    profile_path = tmp_path / "starter.json"
+    profile_path.write_text(json.dumps({"articles_sheet": "   "}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="field 'articles_sheet' cannot be blank"):
+        load_profile(profile_path)
