@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from journal_tracker.profiles import load_profile
-from journal_tracker.sync import ARTICLES_SHEET, DIRECTORY_SHEET
 
 
 def test_load_profile_resolves_relative_paths_and_deduplicates_journals(tmp_path: Path) -> None:
@@ -55,8 +54,8 @@ def test_load_profile_uses_default_sheets_and_name(tmp_path: Path) -> None:
     profile = load_profile(profile_path)
 
     assert profile.name == "starter"
-    assert profile.articles_sheet == ARTICLES_SHEET
-    assert profile.directory_sheet == DIRECTORY_SHEET
+    assert profile.articles_sheet is None
+    assert profile.directory_sheet is None
     assert profile.journal_names == ()
 
 

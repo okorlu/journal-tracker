@@ -14,6 +14,7 @@ from journal_tracker.sync import (
     export_articles_to_csv,
     sync_workbook,
 )
+from journal_tracker.workbook_settings import load_workbook_settings, read_tracked_journals
 
 
 def resolve_cli_path(value: str) -> Path:
@@ -72,6 +73,7 @@ def resolve_run_options(
     if workbook_path is None:
         raise ValueError("Missing workbook path. Use --workbook or provide it in --profile.")
 
+    workbook_settings = load_workbook_settings(workbook_path)
     config_path = (
         resolve_cli_path(args.config)
         if args.config
@@ -84,19 +86,47 @@ def resolve_run_options(
         if args.csv_output
         else profile.csv_output_path
         if profile
-        else None
+        else workbook_settings.csv_output_path
+    )
+    articles_sheet = (
+        profile.articles_sheet
+        if profile and profile.articles_sheet
+        else workbook_settings.articles_sheet or "Articles"
+    )
+    directory_sheet = (
+        profile.directory_sheet
+        if profile and profile.directory_sheet
+        else workbook_settings.directory_sheet or "Journal Directory"
+    )
+    tracked_journals = (
+        read_tracked_journals(workbook_settings.workbook_path, directory_sheet)
+        if workbook_settings.use_tracked_journals_only
+        else ()
     )
     options: dict[str, object] = {
-        "workbook_path": workbook_path,
+        "workbook_path": workbook_settings.workbook_path,
         "config_path": config_path,
         "years": (
-            args.years if args.years is not None else profile.years if profile else DEFAULT_YEARS
+            args.years
+            if args.years is not None
+            else profile.years
+            if profile and profile.years is not None
+            else workbook_settings.years
+            if workbook_settings.years is not None
+            else DEFAULT_YEARS
         ),
         "dry_run": args.dry_run,
-        "articles_sheet": profile.articles_sheet if profile else "Articles",
-        "directory_sheet": profile.directory_sheet if profile else "Journal Directory",
-        "journal_names": profile.journal_names if profile and profile.journal_names else None,
+        "articles_sheet": articles_sheet,
+        "directory_sheet": directory_sheet,
+        "journal_names": (
+            profile.journal_names
+            if profile and profile.journal_names
+            else tracked_journals
+            if workbook_settings.use_tracked_journals_only
+            else None
+        ),
         "csv_output_path": csv_output_path,
+        "crossref_mailto": workbook_settings.crossref_mailto,
     }
     return profile, options
 
@@ -210,7 +240,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         directory_sheet=options["directory_sheet"],
         journal_names=options["journal_names"],
         progress_callback=lambda message: print(message, flush=True),
-        crossref_mailto=os.getenv("CROSSREF_MAILTO"),
+        crossref_mailto=os.getenv("CROSSREF_MAILTO") or options["crossref_mailto"],
     )
     print_summary(summary)
     if options["csv_output_path"]:

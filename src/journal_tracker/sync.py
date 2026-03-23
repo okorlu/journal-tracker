@@ -34,6 +34,12 @@ ARTICLE_URL_HEADER = "Article URL"
 LEGACY_LINK_HEADER = "DOI/Link"
 CROSSREF_API_URL = "https://api.crossref.org/works"
 ProgressCallback = Callable[[str], None]
+DIRECTORY_JOURNAL_HEADER = "Journal Name"
+DIRECTORY_PUBLISHER_HEADER = "Publisher"
+DIRECTORY_CIRCLE_HEADER = "Circle"
+DIRECTORY_CLUSTER_HEADER = "Cluster"
+DIRECTORY_QUARTILE_HEADER = "Quartile"
+DIRECTORY_WEBSITE_HEADER = "Website"
 
 
 @dataclass(frozen=True)
@@ -184,16 +190,37 @@ def read_directory_sheet(
         raise ValueError(f"Workbook is missing the '{directory_sheet_name}' sheet.")
 
     sheet = workbook[directory_sheet_name]
-    selected_lookup = set(selected_journals or [])
+    header_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
+    header_indexes = {
+        str(value or "").strip(): index
+        for index, value in enumerate(header_row)
+        if str(value or "").strip()
+    }
+    journal_index = header_indexes.get(DIRECTORY_JOURNAL_HEADER)
+    if journal_index is None:
+        workbook.close()
+        raise ValueError(
+            f"'{directory_sheet_name}' must include a '{DIRECTORY_JOURNAL_HEADER}' column."
+        )
+
+    selected_lookup = None if selected_journals is None else set(selected_journals)
     seen_selected: set[str] = set()
     entries: list[JournalDirectoryEntry] = []
+
+    def row_value(row_values: tuple[Any, ...], header_name: str) -> Any:
+        index = header_indexes.get(header_name)
+        if index is None or index >= len(row_values):
+            return None
+        return row_values[index]
+
     for row in sheet.iter_rows(min_row=2, values_only=True):
-        journal_name = (row[0] or "").strip()
+        journal_name = str(row[journal_index] or "").strip()
         if not journal_name:
             continue
-        if selected_lookup and journal_name not in selected_lookup:
+        if selected_lookup is not None and journal_name not in selected_lookup:
             continue
         if journal_name not in config:
+            workbook.close()
             raise ValueError(
                 f"Journal '{journal_name}' is present in the workbook but missing from config."
             )
@@ -202,17 +229,17 @@ def read_directory_sheet(
         entries.append(
             JournalDirectoryEntry(
                 journal_name=journal_name,
-                publisher=row[1] or source.publisher or "",
-                circle=row[2] or "",
-                cluster=row[3] or source.cluster or "",
-                quartile=row[4] or "",
-                website=row[5] or "",
+                publisher=row_value(row, DIRECTORY_PUBLISHER_HEADER) or source.publisher or "",
+                circle=row_value(row, DIRECTORY_CIRCLE_HEADER) or "",
+                cluster=row_value(row, DIRECTORY_CLUSTER_HEADER) or source.cluster or "",
+                quartile=row_value(row, DIRECTORY_QUARTILE_HEADER) or "",
+                website=row_value(row, DIRECTORY_WEBSITE_HEADER) or "",
                 source_id=source.source_id,
                 alias=source.alias,
             )
         )
     workbook.close()
-    if selected_lookup:
+    if selected_lookup is not None:
         missing = [name for name in selected_journals or () if name not in seen_selected]
         if missing:
             quoted = ", ".join(f"'{name}'" for name in missing)

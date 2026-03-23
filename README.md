@@ -55,6 +55,8 @@ The sample workbook is only a starting point. You can keep its structure as-is
 or replace it with your own workbook, as long as it includes:
 
 - a `Journal Directory` sheet with your journal list
+- a `Track?` column in `Journal Directory` if you want to activate only part of the list
+- a `Tracker Settings` sheet if you want workbook-managed settings
 - an `Articles` sheet for synced output
 - optionally, a profile JSON under `config/profiles/` to save your default journal subset and sheet names
 
@@ -90,6 +92,10 @@ Windows PowerShell:
   --workbook data\your-tracker.xlsx
 ```
 
+If the workbook already includes a `Tracker Settings` sheet, the sync can read
+defaults such as the year window, CSV output path, and tracked-journal subset
+directly from the workbook.
+
 Export the articles sheet as CSV while syncing:
 
 ```bash
@@ -118,6 +124,30 @@ You can also use the module form on any platform:
 ```bash
 python -m journal_tracker.cli --workbook data/your-tracker.xlsx --dry-run
 ```
+
+Find journals in your workbook that are not yet mapped in
+`config/openalex_sources.json`:
+
+```bash
+.venv/bin/journal-tracker-discover-journals \
+  --workbook data/your-tracker.xlsx
+```
+
+### Double-click launchers
+
+If you prefer not to type commands, the repo also includes launcher scripts for
+the default local workbook:
+
+- macOS:
+  - `scripts/run_sync.command`
+  - `scripts/discover_journals.command`
+- Windows:
+  - `scripts\\run_sync.bat`
+  - `scripts\\discover_journals.bat`
+
+They run against `data/turkish_politics_articles_database.xlsx`, so they work
+best after you have copied the sample workbook into `data/` and installed the
+project into `.venv`.
 
 ## Profiles
 
@@ -161,6 +191,78 @@ CLI paths passed to `--workbook`, `--config`, and `--csv-output` can use
 relative paths or `~`. Relative CLI paths resolve from your current working
 directory, while profile paths resolve from the profile file's directory.
 
+## Journal Discovery
+
+When you add a journal to `Journal Directory` but have not yet mapped it in
+`config/openalex_sources.json`, you can generate OpenAlex source suggestions
+directly into the workbook.
+
+The discovery command:
+
+- scans `Journal Directory`
+- finds journals missing from the config file
+- searches OpenAlex Sources for likely matches
+- writes a `Journal Match Suggestions` sheet into the workbook
+
+The suggestions sheet includes:
+
+- the workbook journal name
+- a top suggested OpenAlex source ID
+- suggested source name and publisher
+- up to two alternative candidates
+- a short confidence note
+- an empty `Approve?` column for future workflow steps
+
+This is designed to make adding journals easier before any config-writing
+automation is introduced.
+
+## Workbook-Based Settings
+
+You can now manage the most common sync settings directly from the workbook.
+This is the easiest path for non-technical users because it avoids editing JSON
+profiles.
+
+### `Tracker Settings`
+
+The sample workbook includes a `Tracker Settings` sheet with a simple `Key` /
+`Value` layout. Supported keys are:
+
+- `Profile Name`
+- `Years`
+- `Articles Sheet`
+- `Journal Directory Sheet`
+- `CSV Output`
+- `Use Tracked Journals Only`
+- `Crossref Mailto`
+
+### `Track?` in `Journal Directory`
+
+If `Use Tracked Journals Only` is set to `yes`, the sync will only fetch
+journals whose `Track?` value is one of:
+
+- `yes`
+- `y`
+- `true`
+- `1`
+
+Anything else is treated as off.
+
+### Precedence Rules
+
+Settings are resolved in this order:
+
+- CLI arguments
+- JSON profile values
+- workbook settings
+- built-in defaults
+
+For journal selection:
+
+- profile `journals` wins if present
+- otherwise the workbook uses `Track?` values when `Use Tracked Journals Only`
+  is enabled
+- otherwise all journals in `Journal Directory` are scanned
+
 ## How it works
 
 - Reads journals from the `Journal Directory` sheet.
@@ -187,6 +289,8 @@ In practice, adapting the project usually means:
 
 - replacing the sample workbook with your own workbook under `data/`
 - editing the journal list in the `Journal Directory` sheet
+- marking active journals in `Track?` when you want workbook-based selection
+- updating `Tracker Settings` for workbook-managed defaults
 - updating `config/openalex_sources.json` with the matching OpenAlex `source_id`
 - optionally changing the output CSV filename and local workbook name
 

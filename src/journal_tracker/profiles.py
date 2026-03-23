@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from journal_tracker.sync import ARTICLES_SHEET, DIRECTORY_SHEET, default_config_path
+from journal_tracker.sync import default_config_path
 
 
 @dataclass(frozen=True)
@@ -15,8 +15,8 @@ class TrackingProfile:
     config_path: Path | None = None
     csv_output_path: Path | None = None
     years: int | None = None
-    articles_sheet: str = ARTICLES_SHEET
-    directory_sheet: str = DIRECTORY_SHEET
+    articles_sheet: str | None = None
+    directory_sheet: str | None = None
     journal_names: tuple[str, ...] = ()
 
 
@@ -93,10 +93,8 @@ def load_profile(profile_path: Path) -> TrackingProfile:
     workbook_value = _optional_string(payload, "workbook", resolved_path)
     config_value = _optional_string(payload, "config", resolved_path)
     csv_output_value = _optional_string(payload, "csv_output", resolved_path)
-    articles_sheet = _optional_string(payload, "articles_sheet", resolved_path) or ARTICLES_SHEET
-    directory_sheet = (
-        _optional_string(payload, "directory_sheet", resolved_path) or DIRECTORY_SHEET
-    )
+    articles_sheet = _optional_string(payload, "articles_sheet", resolved_path)
+    directory_sheet = _optional_string(payload, "directory_sheet", resolved_path)
 
     return TrackingProfile(
         name=name,

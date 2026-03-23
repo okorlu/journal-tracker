@@ -25,6 +25,7 @@ dev = [
 
 [project.scripts]
 journal-tracker-sync = "journal_tracker.cli:main"
+journal-tracker-discover-journals = "journal_tracker.discover_cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -41,4 +42,3 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-

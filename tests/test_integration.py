@@ -290,6 +290,105 @@ def test_resolve_run_options_normalizes_direct_cli_paths(tmp_path: Path, monkeyp
     assert options["csv_output_path"] == (home_dir / "journal-tracker.csv").resolve()
 
 
+def test_workbook_settings_can_supply_defaults_and_track_subset(tmp_path: Path) -> None:
+    source_workbook = Path("examples/turkish_politics_articles_database.sample.xlsx")
+    workbook_path = tmp_path / "tracker.xlsx"
+    shutil.copy2(source_workbook, workbook_path)
+
+    workbook = load_workbook(workbook_path)
+    settings_sheet = workbook["Tracker Settings"]
+    settings_sheet.delete_rows(2, settings_sheet.max_row - 1)
+    settings_sheet.append(["Profile Name", "Workbook Demo"])
+    settings_sheet.append(["Years", 5])
+    settings_sheet.append(["Articles Sheet", "Articles"])
+    settings_sheet.append(["Journal Directory Sheet", "Journal Directory"])
+    settings_sheet.append(["CSV Output", "exports/from-settings.csv"])
+    settings_sheet.append(["Use Tracked Journals Only", "yes"])
+    settings_sheet.append(["Crossref Mailto", "demo@example.com"])
+
+    directory_sheet = workbook["Journal Directory"]
+    directory_sheet.cell(row=1, column=7).value = "Track?"
+    for row_index in range(2, directory_sheet.max_row + 1):
+        directory_sheet.cell(row=row_index, column=7).value = "no"
+    directory_sheet.cell(row=2, column=7).value = "yes"
+    workbook.save(workbook_path)
+    workbook.close()
+
+    args = type(
+        "Args",
+        (),
+        {
+            "profile": None,
+            "workbook": str(workbook_path),
+            "config": None,
+            "years": None,
+            "dry_run": True,
+            "csv_output": None,
+        },
+    )()
+
+    profile, options = resolve_run_options(args)
+
+    assert profile is None
+    assert options["workbook_path"] == workbook_path.resolve()
+    assert options["years"] == 5
+    assert options["articles_sheet"] == "Articles"
+    assert options["directory_sheet"] == "Journal Directory"
+    assert options["journal_names"] == ("Turkish Studies",)
+    assert options["csv_output_path"] == (tmp_path / "exports" / "from-settings.csv").resolve()
+    assert options["crossref_mailto"] == "demo@example.com"
+
+
+def test_cli_profile_overrides_workbook_settings(tmp_path: Path) -> None:
+    source_workbook = Path("examples/turkish_politics_articles_database.sample.xlsx")
+    workbook_path = tmp_path / "tracker.xlsx"
+    profile_path = tmp_path / "profile.json"
+    shutil.copy2(source_workbook, workbook_path)
+
+    workbook = load_workbook(workbook_path)
+    settings_sheet = workbook["Tracker Settings"]
+    settings_sheet.delete_rows(2, settings_sheet.max_row - 1)
+    settings_sheet.append(["Years", 7])
+    settings_sheet.append(["Use Tracked Journals Only", "yes"])
+    directory_sheet = workbook["Journal Directory"]
+    directory_sheet.cell(row=1, column=7).value = "Track?"
+    for row_index in range(2, directory_sheet.max_row + 1):
+        directory_sheet.cell(row=row_index, column=7).value = "no"
+    directory_sheet.cell(row=2, column=7).value = "yes"
+    workbook.save(workbook_path)
+    workbook.close()
+
+    profile_path.write_text(
+        json.dumps(
+            {
+                "workbook": str(workbook_path),
+                "years": 4,
+                "journals": ["Party Politics", "Turkish Studies"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    args = type(
+        "Args",
+        (),
+        {
+            "profile": str(profile_path),
+            "workbook": None,
+            "config": None,
+            "years": 6,
+            "dry_run": True,
+            "csv_output": None,
+        },
+    )()
+
+    profile, options = resolve_run_options(args)
+
+    assert profile is not None
+    assert options["years"] == 6
+    assert options["journal_names"] == ("Party Politics", "Turkish Studies")
+
+
 def test_env_file_candidates_prefer_run_contexts_and_dedupe(tmp_path: Path) -> None:
     current_dir = tmp_path / "cwd"
     profile_dir = tmp_path / "profiles"
