@@ -196,9 +196,10 @@ def test_sync_workbook_can_filter_to_profile_journal_subset(tmp_path: Path) -> N
 
 
 def test_profile_can_supply_paths_and_defaults(tmp_path: Path) -> None:
+    source_workbook = Path("examples/turkish_politics_articles_database.sample.xlsx")
     workbook_path = tmp_path / "tracker.xlsx"
     profile_path = tmp_path / "starter.json"
-    workbook_path.write_text("", encoding="utf-8")
+    shutil.copy2(source_workbook, workbook_path)
     profile_path.write_text(
         json.dumps(
             {
@@ -241,12 +242,13 @@ def test_profile_can_supply_paths_and_defaults(tmp_path: Path) -> None:
 
 
 def test_resolve_run_options_normalizes_direct_cli_paths(tmp_path: Path, monkeypatch) -> None:
+    source_workbook = Path("examples/turkish_politics_articles_database.sample.xlsx")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     workbook_path = workspace / "tracker.xlsx"
     config_path = workspace / "sources.json"
     csv_path = workspace / "exports" / "tracker.csv"
-    workbook_path.write_text("", encoding="utf-8")
+    shutil.copy2(source_workbook, workbook_path)
     config_path.write_text("[]", encoding="utf-8")
     csv_path.parent.mkdir()
 
