@@ -20,6 +20,16 @@ def resolve_cli_path(value: str) -> Path:
     return Path(value).expanduser().resolve()
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sync OpenAlex publications into the journal tracker workbook."
@@ -34,7 +44,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--years",
-        type=int,
+        type=positive_int,
         help=f"Rolling publication window in years (default: {DEFAULT_YEARS}).",
     )
     parser.add_argument(

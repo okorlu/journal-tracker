@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import os
@@ -7,9 +8,16 @@ import shutil
 from datetime import date
 from pathlib import Path
 
+import pytest
 from openpyxl import load_workbook
 
-from journal_tracker.cli import env_file_candidates, load_runtime_env, resolve_run_options
+from journal_tracker.cli import (
+    env_file_candidates,
+    load_runtime_env,
+    parse_args,
+    positive_int,
+    resolve_run_options,
+)
 from journal_tracker.profiles import load_profile
 from journal_tracker.sync import (
     META_SHEET,
@@ -238,6 +246,19 @@ def test_profile_can_supply_paths_and_defaults(tmp_path: Path) -> None:
     assert options["directory_sheet"] == "Journal Directory"
     assert options["journal_names"] == ("Party Politics", "Turkish Studies")
     assert options["csv_output_path"] == (tmp_path / "exports" / "tracker.csv").resolve()
+
+
+def test_positive_int_rejects_zero_and_negative_values() -> None:
+    with pytest.raises(argparse.ArgumentTypeError, match="positive integer"):
+        positive_int("0")
+
+    with pytest.raises(argparse.ArgumentTypeError, match="positive integer"):
+        positive_int("-2")
+
+
+def test_parse_args_rejects_non_positive_years() -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--workbook", "data/tracker.xlsx", "--years", "0"])
 
 
 def test_resolve_run_options_normalizes_direct_cli_paths(tmp_path: Path, monkeypatch) -> None:
