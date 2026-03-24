@@ -204,6 +204,10 @@ The discovery command:
 - searches OpenAlex Sources for likely matches
 - writes a `Journal Match Suggestions` sheet into the workbook
 
+The journal/source config file is also validated when loaded, so mistakes such
+as a missing `journal_name`, missing `source_id`, or duplicate journal entries
+now fail early with a clear error message.
+
 The suggestions sheet includes:
 
 - the workbook journal name

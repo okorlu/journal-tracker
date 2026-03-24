@@ -112,13 +112,87 @@ def default_config_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "openalex_sources.json"
 
 
+def _config_error(config_path: Path, message: str) -> ValueError:
+    return ValueError(f"Config '{config_path}' {message}")
+
+
+def _optional_config_string(
+    item: dict[str, Any],
+    field_name: str,
+    config_path: Path,
+    entry_index: int,
+) -> str | None:
+    value = item.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _config_error(
+            config_path,
+            f"entry #{entry_index} field '{field_name}' must be a string when provided.",
+        )
+    normalized = value.strip()
+    return normalized or None
+
+
+def _required_config_string(
+    item: dict[str, Any],
+    field_name: str,
+    config_path: Path,
+    entry_index: int,
+) -> str:
+    value = _optional_config_string(item, field_name, config_path, entry_index)
+    if value is None:
+        raise _config_error(
+            config_path,
+            f"entry #{entry_index} field '{field_name}' is required and cannot be blank.",
+        )
+    return value
+
+
+def load_config_entries(config_path: Path) -> list[dict[str, str | None]]:
+    resolved_path = config_path.expanduser().resolve()
+    payload = json.loads(resolved_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise _config_error(resolved_path, "must contain a JSON array.")
+
+    seen_journals: set[str] = set()
+    entries: list[dict[str, str | None]] = []
+    for entry_index, item in enumerate(payload, start=1):
+        if not isinstance(item, dict):
+            raise _config_error(resolved_path, f"entry #{entry_index} must be a JSON object.")
+        journal_name = _required_config_string(item, "journal_name", resolved_path, entry_index)
+        if journal_name in seen_journals:
+            raise _config_error(
+                resolved_path,
+                f"contains duplicate journal_name '{journal_name}' in entry #{entry_index}.",
+            )
+        seen_journals.add(journal_name)
+        entries.append(
+            {
+                "journal_name": journal_name,
+                "source_id": _required_config_string(
+                    item, "source_id", resolved_path, entry_index
+                ),
+                "publisher": _optional_config_string(
+                    item, "publisher", resolved_path, entry_index
+                ),
+                "cluster": _optional_config_string(item, "cluster", resolved_path, entry_index),
+                "alias": _optional_config_string(item, "alias", resolved_path, entry_index),
+            }
+        )
+    return entries
+
+
 def load_config(config_path: Path) -> dict[str, JournalConfig]:
-    items = json.loads(config_path.read_text(encoding="utf-8"))
     config: dict[str, JournalConfig] = {}
-    for item in items:
-        config[item["journal_name"]] = JournalConfig(
-            journal_name=item["journal_name"],
-            source_id=item["source_id"],
+    for item in load_config_entries(config_path):
+        journal_name = item["journal_name"]
+        source_id = item["source_id"]
+        assert journal_name is not None
+        assert source_id is not None
+        config[journal_name] = JournalConfig(
+            journal_name=journal_name,
+            source_id=source_id,
             publisher=item.get("publisher"),
             cluster=item.get("cluster"),
             alias=item.get("alias"),

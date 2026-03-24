@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +17,7 @@ from journal_tracker.sync import (
     default_config_path,
     emit_progress,
     json_get,
+    load_config,
     normalize_text,
 )
 
@@ -60,8 +60,7 @@ class DiscoverySummary:
 
 
 def load_config_names(config_path: Path) -> set[str]:
-    items = json.loads(config_path.read_text(encoding="utf-8"))
-    return {item["journal_name"] for item in items}
+    return set(load_config(config_path))
 
 
 def read_directory_rows(
