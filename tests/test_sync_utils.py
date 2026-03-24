@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
+from journal_tracker.discover import load_config_names
 from journal_tracker.sync import (
     ArticleIdentifiers,
     JournalDirectoryEntry,
@@ -7,6 +13,7 @@ from journal_tracker.sync import (
     format_topics,
     format_volume_issue,
     is_probably_article_url,
+    load_config,
     normalize_doi,
     normalize_text,
     resolve_article_identifiers,
@@ -152,3 +159,35 @@ def test_resolve_article_identifiers_uses_crossref_when_openalex_link_is_not_art
 
     assert identifiers.doi_url == "https://doi.org/10.1000/recovered"
     assert identifiers.article_url == "https://publisher.example.org/article/recovered"
+
+
+def test_load_config_rejects_missing_required_source_id(tmp_path: Path) -> None:
+    config_path = tmp_path / "sources.json"
+    config_path.write_text(json.dumps([{"journal_name": "Journal A"}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="field 'source_id' is required and cannot be blank"):
+        load_config(config_path)
+
+
+def test_load_config_rejects_duplicate_journal_names(tmp_path: Path) -> None:
+    config_path = tmp_path / "sources.json"
+    config_path.write_text(
+        json.dumps(
+            [
+                {"journal_name": "Journal A", "source_id": "https://openalex.org/S1"},
+                {"journal_name": "Journal A", "source_id": "https://openalex.org/S2"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="contains duplicate journal_name 'Journal A'"):
+        load_config(config_path)
+
+
+def test_load_config_names_reuses_config_validation(tmp_path: Path) -> None:
+    config_path = tmp_path / "sources.json"
+    config_path.write_text(json.dumps([{"source_id": "https://openalex.org/S1"}]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="field 'journal_name' is required and cannot be blank"):
+        load_config_names(config_path)
